@@ -4,17 +4,29 @@ For whoever picks this up next, whether that's a Claude Code session on the towe
 a person at the keyboard. Read `README.md` in this folder for the full runbook; this
 file covers where things stand and what the next session needs to know.
 
-## Where things stand (2026-09-27)
+## Where things stand (2026-09-28)
 
-- A used GL-MT3000 (Beryl AX) is on the bench, cabled somewhere into the home network
-  behind an ASUS RT-AX88U Pro. Its current firmware and password state are unknown.
-- `flash.sh`, `setup.sh` and `README.md` are written and pushed on branch
-  `claude/beryl-ax-openwrt-setup-r1gqr7`. **Neither script has run against real
-  hardware.** The router-side part of `setup.sh` passed a dry run against a
-  stubbed `uci`.
-- Nothing on the router has been reset, flashed or configured yet.
-- The first session ran in a cloud container with no LAN access, which is why this
-  is handed off.
+Done, by hand through the GL web UI and LuCI (the scripts were not used):
+
+- Factory reset on GL stock 4.7.4, then flashed the OpenWrt 25.12.5 sysupgrade image
+  (sha256 matched) from GL's Local Upgrade page with Keep Settings off. Flash went
+  cleanly on 4.7.4 without a stock update first.
+- In LuCI: root password set; both radios enabled on `lan` only, country US,
+  WPA2/WPA3 mixed. 2.4 GHz on ch 1 at 20 MHz with SSID `travel_slen_2`; 5 GHz
+  planned for ch 36 at 80 MHz. LAN moved to `192.168.8.1/24`.
+- Beryl 2.5G WAN is on the ASUS. It's reachable at `http://192.168.8.1`.
+
+Still open:
+
+- Confirm Status > Overview shows OpenWrt 25.12.5 and whether
+  `luci-app-travelmate` / `luci-proto-wireguard` got installed.
+- Take a config backup (System > Backup / Flash Firmware).
+- Travelmate uplink setup happens on the road.
+- `flash.sh` and `setup.sh` are still untested against hardware.
+
+Lessons: the NUC was used first, but moving its only Ethernet cable behind the Beryl
+cut Remote Desktop, Roon and Jellyfin. Do Beryl LAN-side work from the tower, not
+the NUC.
 
 ## What was verified and what wasn't
 
