@@ -16,13 +16,15 @@ Done, by hand through the GL web UI and LuCI (the scripts were not used):
   planned for ch 36 at 80 MHz. LAN moved to `192.168.8.1/24`.
 - Beryl 2.5G WAN is on the ASUS. It's reachable at `http://192.168.8.1`.
 
-Still open:
+Confirmed after setup: Status > Overview shows OpenWrt 25.12.5; `luci-app-travelmate`
+and `luci-proto-wireguard` installed; config backup saved off-device.
 
-- Confirm Status > Overview shows OpenWrt 25.12.5 and whether
-  `luci-app-travelmate` / `luci-proto-wireguard` got installed.
-- Take a config backup (System > Backup / Flash Firmware).
-- Travelmate uplink setup happens on the road.
-- `flash.sh` and `setup.sh` are still untested against hardware.
+Decided against Tailscale on the Beryl. For remote Jellyfin, run the Tailscale client
+on the laptop and the NUC instead. Revisit only for non-Tailscale devices on the road
+or to route all hotel traffic through home.
+
+Still open: Travelmate uplink setup happens on the road. `flash.sh` and `setup.sh`
+remain untested against hardware.
 
 Lessons: the NUC was used first, but moving its only Ethernet cable behind the Beryl
 cut Remote Desktop, Roon and Jellyfin. Do Beryl LAN-side work from the tower, not
