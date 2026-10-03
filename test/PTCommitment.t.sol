@@ -10,17 +10,10 @@ import {MockUSDC, ReentrantToken} from "./mocks/MockUSDC.sol";
 import {Base} from "./Base.t.sol";
 
 contract ConstructorTest is Base {
-    function _make(
-        address o,
-        address b,
-        address v,
-        address t,
-        uint256 st,
-        uint256 n,
-        uint256 bm,
-        uint256 tr,
-        uint256 g
-    ) internal returns (PTCommitment) {
+    function _make(address o, address b, address v, address t, uint256 st, uint256 n, uint256 bm, uint256 tr, uint256 g)
+        internal
+        returns (PTCommitment)
+    {
         return new PTCommitment(o, b, v, IERC20(t), st, n, bm, tr, g);
     }
 
@@ -62,6 +55,14 @@ contract ConstructorTest is Base {
         next = vm.computeCreateAddress(address(this), vm.getNonce(address(this)));
         vm.expectRevert(PTCommitment.InvalidPayee.selector);
         _make(owner, next, verifierAddr, address(usdc), start, NUM_DAYS, BITMAP, TRANCHE, GRACE);
+    }
+
+    /// A payee that is the token contract can never call withdraw, so its credits would be stranded.
+    function test_revert_payeeIsToken() public {
+        vm.expectRevert(PTCommitment.InvalidPayee.selector);
+        _make(address(usdc), beneficiary, verifierAddr, address(usdc), start, NUM_DAYS, BITMAP, TRANCHE, GRACE);
+        vm.expectRevert(PTCommitment.InvalidPayee.selector);
+        _make(owner, address(usdc), verifierAddr, address(usdc), start, NUM_DAYS, BITMAP, TRANCHE, GRACE);
     }
 
     function test_revert_tokenWithoutCode() public {
@@ -106,7 +107,9 @@ contract ConstructorTest is Base {
         vm.expectRevert(PTCommitment.InvalidSchedule.selector);
         _make(owner, beneficiary, verifierAddr, address(usdc), start, NUM_DAYS, 0, TRANCHE, GRACE);
         vm.expectRevert(PTCommitment.InvalidSchedule.selector);
-        _make(owner, beneficiary, verifierAddr, address(usdc), start, NUM_DAYS, BITMAP | (1 << NUM_DAYS), TRANCHE, GRACE);
+        _make(
+            owner, beneficiary, verifierAddr, address(usdc), start, NUM_DAYS, BITMAP | (1 << NUM_DAYS), TRANCHE, GRACE
+        );
     }
 
     function test_fullSchedule256() public {

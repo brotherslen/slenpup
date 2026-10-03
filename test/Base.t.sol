@@ -111,7 +111,9 @@ abstract contract Base is Test {
             )
         );
         bytes32 structHash = keccak256(
-            abi.encode(keccak256("Claim(uint256 day,bytes32 challenge,bytes32 videoHash,uint32 score)"), d, ch, vh, score)
+            abi.encode(
+                keccak256("Claim(uint256 day,bytes32 challenge,bytes32 videoHash,uint32 score)"), d, ch, vh, score
+            )
         );
         return keccak256(abi.encodePacked("\x19\x01", domain, structHash));
     }

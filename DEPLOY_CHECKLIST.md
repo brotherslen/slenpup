@@ -18,7 +18,7 @@ One contract per commitment. Nothing is at risk until `fund()`; everything befor
 - [ ] `python3 script/start_time.py bitmap <pattern>` for `NUM_DAYS` and `SCHEDULE_BITMAP`. Keep the same pattern for the verifier's config.
 - [ ] `TRANCHE_AMOUNT` in USDC base units (6 decimals: `10e6` = 10 USDC).
 - [ ] `GRACE_SECONDS=21600` (6h). The contract caps it at 12h.
-- [ ] `BENEFICIARY` is someone you'd genuinely rather not pay, and not an address you control.
+- [ ] `BENEFICIARY` is someone you'd genuinely rather not pay, and not an address you control. It must be a normal wallet that can send a `withdraw()` transaction: not an exchange deposit address, not a contract without a generic call function. Otherwise forfeits are stranded forever.
 
 ## Each deploy (Anvil → Base Sepolia → mainnet small stake for two weeks → mainnet real amount)
 

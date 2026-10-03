@@ -6,9 +6,25 @@ Tools: Slither 0.11.6 (102 detectors), Aderyn 0.6.8 (88 detectors), forge-lint (
 
 ## Fixed
 
-| Tool | Finding | Fix |
+| Source | Finding | Fix |
 | --- | --- | --- |
 | Slither `uninitialized-local` | `count` in the constructor declared without an initializer | Initialized to `0` explicitly. Behaviour unchanged (Solidity zero-initializes); silences the detector. |
+| Independent review L-1 | Constructor accepted the token contract itself as `owner` or `beneficiary`; a paste error would strand that party's credits forever, since the token can't call `withdraw` | Constructor now rejects `owner == token` and `beneficiary == token` (`test_revert_payeeIsToken`). |
+
+## Independent review
+
+A fresh-context reviewer (no access to my reasoning) audited the contract against SPEC.md on 2026-10-03. It found no Critical, High, or Medium issues. It confirmed there's no escape hatch, no stuck-funds path while both payees are healthy, and that replay protection, window edges, overflow, and reentrancy are clean.
+
+| ID | Finding | Outcome |
+| --- | --- | --- |
+| L-1 | Token address accepted as a payee; more generally, any payee that can't call `withdraw` strands its credits | Token case fixed (above). General case documented in SPEC §8 and DEPLOY_CHECKLIST; `withdrawFor` remains a proposal for you to decide. |
+| I-1 | Verifier rotation lets the owner install any key after 48h | Same power as holding the verifier key, which the threat model accepts. Now stated in SPEC §8. |
+| I-2 | A pending verifier can only be overwritten, not cancelled | Left as is: acceptance is owner-only, so a stale proposal can't take effect on its own. |
+| I-3 | A reorg of the `seedDay` tx changes the challenge and voids signatures over the old one | Verifier requirement added to SPEC §8: read the challenge from a finalized block. |
+| I-4 | In the grace overlap one recording could hold two days' words | Verifier requirement added to SPEC §8: one video per day, no `videoHash` signed twice. |
+| I-5 | `forfeitMany([])` succeeds as a no-op on any contract | Left as is; harmless, tested. |
+| I-6 | On-the-hour `startTime` rules out half-hour-offset time zones | Left as is; not relevant to US zones. Revisit if you travel to one. |
+| Spec | Lifecycle text, storage types, `recover` vs `tryRecover` wording, stale header | SPEC.md corrected to match the code. |
 
 ## Justified (left as is)
 

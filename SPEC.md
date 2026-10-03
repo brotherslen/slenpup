@@ -1,4 +1,4 @@
-# PTCommitment — contract spec (draft, awaiting sign-off)
+# PTCommitment — contract spec
 
 Status: v1, signed off 2026-10-03. Implemented in `src/PTCommitment.sol`. Contract design decisions are settled (§9). The remaining open items are deploy-time parameters and don't change the code.
 
@@ -48,7 +48,7 @@ All of these are `immutable`. None can change after deploy. All are `uint256` in
 | Name | Type | Validation (revert if violated) |
 | --- | --- | --- |
 | `owner` | `address` | `!= 0` |
-| `beneficiary` | `address` | `!= 0`, `!= owner`, `!= address(this)` (likewise `owner != address(this)`) |
+| `beneficiary` | `address` | `!= 0`, `!= owner`, `!= address(this)`, `!= token` (likewise `owner != address(this)`, `owner != token`). Must be an address that can send a transaction calling `withdraw()`; see §8. |
 | `token` | `IERC20` | `!= 0`, has code |
 | `startTime` | `uint64` | `> block.timestamp`, `<= block.timestamp + 365 days` (`MAX_START_DELAY`, catches a milliseconds-for-seconds typo that would otherwise lock funds for millennia), `% 3600 == 0` (on the hour). Deploy value: 04:00 local, converted to UTC at deploy time (§9) |
 | `numDays` | `uint16` | `1..256` |
@@ -69,10 +69,10 @@ EIP-712 domain: `name = "PTCommitment"`, `version = "1"`, plus `chainId` and `ve
 | `funded` | `bool` | Set once by `fund()`. Never by a balance check, so a direct transfer can't activate the contract. |
 | `verifier` | `address` | Current signing key. |
 | `pendingVerifier` | `address` | Proposed key, `0` if none. |
-| `pendingVerifierReadyAt` | `uint64` | Earliest `acceptVerifier` time. |
+| `pendingVerifierReadyAt` | `uint256` | Earliest `acceptVerifier` time. |
 | `dayState` | `mapping(uint256 => DayState)` | `Unseeded` (default), `Seeded`, `Claimed`, `Forfeited`. |
 | `challenge` | `mapping(uint256 => bytes32)` | Written once by `seedDay`. |
-| `unresolvedDays` | `uint16` | Starts at `activeDayCount`, decremented on each claim or forfeit. |
+| `unresolvedDays` | `uint256` | Starts at `activeDayCount`, decremented on each claim or forfeit. |
 | `credit` | `mapping(address => uint256)` | Withdrawable balance, only ever keyed by `owner` or `beneficiary`. |
 | `totalCredited` | `uint256` | Sum of current `credit` values (so sweep needs no loop). |
 
@@ -98,9 +98,9 @@ Time definitions for day `d` (all `uint256` math):
 
 ### 5.2 Contract lifecycle
 
-- **Pending**: `!funded && t < startTime`. Only `fund()` and views work.
+- **Pending**: `!funded && t < startTime`. `fund()`, verifier rotation, and views work.
 - **Active**: `funded`. Day functions, withdrawals, verifier rotation work. Sweep works once `unresolvedDays == 0`.
-- **Dead**: `!funded && t >= startTime`. Only `reclaimUnfunded()` and views work. Terminal.
+- **Dead**: `!funded && t >= startTime`. `reclaimUnfunded()`, verifier rotation, and views work; nothing can activate it. Terminal.
 
 ## 6. Functions
 
@@ -111,7 +111,7 @@ All state-changing functions are `nonReentrant` and follow checks-effects-intera
 | `fund()` | anyone | `!funded`, `t < startTime` | `safeTransferFrom(msg.sender, this, totalRequired)`; require balance delta `== totalRequired`; `funded = true`. The payer is not recorded and gets no special rights. | `Funded(payer, amount)` |
 | `reclaimUnfunded()` | anyone | Dead (`!funded && t >= startTime`), balance `> 0` | Transfer entire token balance to `owner` | `UnfundedReclaimed(amount)` |
 | `seedDay(d)` | anyone | `funded`, `d` active, `Unseeded`, `dayStart(d) <= t <= claimDeadline(d)` | `challenge[d] = keccak256(abi.encode(blockhash(block.number - 1), d, address(this)))`; state `Seeded` | `DaySeeded(d, challenge)` |
-| `claim(d, videoHash, score, sig)` | anyone | `funded`, `d` active, `Seeded`, `dayStart(d) <= t <= claimDeadline(d)`, `ECDSA.recover(digest, sig) == verifier` | State `Claimed`; `unresolvedDays--`; `credit[owner] += trancheAmount`; `totalCredited += trancheAmount` | `DayClaimed(d, videoHash, score)` |
+| `claim(d, videoHash, score, sig)` | anyone | `funded`, `d` active, `Seeded`, `dayStart(d) <= t <= claimDeadline(d)`, `ECDSA.tryRecover(digest, sig)` returns no error and `verifier` | State `Claimed`; `unresolvedDays--`; `credit[owner] += trancheAmount`; `totalCredited += trancheAmount` | `DayClaimed(d, videoHash, score)` |
 | `forfeit(d)` | anyone | `funded`, `d` active, `Unseeded` or `Seeded`, `t > claimDeadline(d)` | State `Forfeited`; `unresolvedDays--`; `credit[beneficiary] += trancheAmount`; `totalCredited += trancheAmount` | `DayForfeited(d)` |
 | `forfeitMany(days)` | anyone | `days.length <= 256`; each day passes `forfeit`'s checks except already-resolved days, which are **skipped** (so a front-run single `forfeit` can't grief the batch) | As `forfeit`, per day | `DayForfeited(d)` per day |
 | `withdraw()` | owner or beneficiary | `credit[msg.sender] > 0` | Zero credit, reduce `totalCredited`, then `safeTransfer(msg.sender, amount)` | `Withdrawn(account, amount)` |
@@ -162,7 +162,14 @@ Ways the owner could get money back without doing sessions:
 - **Beneficiary under the owner's control.** The contract can only check `beneficiary != owner`. The commitment only bites if the beneficiary is someone you'd rather not pay.
 - **Grace window overlap.** Day `d`'s claim window and day `d+1`'s overlap for `graceSeconds`. With a 04:00 boundary and 6h grace, day `d`'s deadline is 10:00 the next morning, so a missed evening can be made up before 10:00 alongside that morning's session. `MAX_GRACE = 12h` keeps a deploy typo from widening this past half a day.
 
+- **Verifier rotation.** After 48h the owner can install any key as verifier. That's no more power than already holding the verifier key, and the timelock doesn't constrain the owner. Its only job is key-loss recovery. A thief holding the owner key gets the same power, which is one more reason the owner key lives on a hardware wallet.
+
+Verifier requirements that came out of the contract review (phase 2):
+- Read `challenge[d]` from a finalized block before signing. A reorg of the `seedDay` tx changes the stored challenge and invalidates any signature over the old one.
+- One video, one day. In the grace overlap, days `d` and `d+1` can both be seeded, so one recording could contain both days' words. Require each video to contain only its own day's words, and refuse to sign two days with one `videoHash`.
+
 Ways funds could get stuck:
+- A beneficiary (or owner) that can't call `withdraw()`: an exchange deposit address, or a contract with no generic call function. Payouts are pull-only, so its credits sit forever. Choose a beneficiary address controlled by a person with a normal wallet. `withdrawFor` (§9, proposed) would remove this risk.
 - Blacklisted owner or beneficiary (§2 table). The brief forbids redirecting payouts, so these credits wait until Circle unblacklists. I've kept that behaviour.
 - Lost owner key strands owner credits and the final sweep. Mitigation is off-chain: seed phrase backup for the hardware wallet.
 - Non-USDC tokens sent by mistake are stuck forever. Accepted: `sweep` handles USDC only.

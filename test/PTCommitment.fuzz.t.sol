@@ -19,9 +19,8 @@ contract FuzzTest is Base {
             if (numDays == 0 || numDays > 256) vm.expectRevert(PTCommitment.InvalidNumDays.selector);
             else vm.expectRevert(PTCommitment.InvalidSchedule.selector);
         }
-        PTCommitment p = new PTCommitment(
-            owner, beneficiary, verifierAddr, IERC20(address(usdc)), start, numDays, bitmap, 1, GRACE
-        );
+        PTCommitment p =
+            new PTCommitment(owner, beneficiary, verifierAddr, IERC20(address(usdc)), start, numDays, bitmap, 1, GRACE);
         if (valid) {
             assertEq(p.activeDayCount(), _popcount(bitmap));
             assertEq(p.totalRequired(), _popcount(bitmap));
@@ -33,9 +32,8 @@ contract FuzzTest is Base {
         numDays = bound(numDays, 1, 256);
         if (numDays < 256) bitmap &= (uint256(1) << numDays) - 1;
         vm.assume(bitmap != 0);
-        PTCommitment p = new PTCommitment(
-            owner, beneficiary, verifierAddr, IERC20(address(usdc)), start, numDays, bitmap, 3, GRACE
-        );
+        PTCommitment p =
+            new PTCommitment(owner, beneficiary, verifierAddr, IERC20(address(usdc)), start, numDays, bitmap, 3, GRACE);
         assertEq(p.activeDayCount(), _popcount(bitmap));
         assertEq(p.totalRequired(), 3 * _popcount(bitmap));
     }

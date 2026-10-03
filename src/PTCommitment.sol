@@ -108,14 +108,16 @@ contract PTCommitment is EIP712, ReentrancyGuard {
         uint256 trancheAmount_,
         uint256 graceSeconds_
     ) EIP712("PTCommitment", "1") {
-        if (owner_ == address(0) || beneficiary_ == address(0) || verifier_ == address(0)) revert ZeroAddress();
-        if (beneficiary_ == owner_ || owner_ == address(this) || beneficiary_ == address(this)) {
-            revert InvalidPayee();
+        if (owner_ == address(0) || beneficiary_ == address(0) || verifier_ == address(0)) {
+            revert ZeroAddress();
         }
+        if (
+            beneficiary_ == owner_ || owner_ == address(this) || beneficiary_ == address(this)
+                || owner_ == address(token_) || beneficiary_ == address(token_)
+        ) revert InvalidPayee();
         if (address(token_).code.length == 0) revert TokenHasNoCode();
         if (
-            startTime_ <= block.timestamp || startTime_ > block.timestamp + MAX_START_DELAY
-                || startTime_ % 1 hours != 0
+            startTime_ <= block.timestamp || startTime_ > block.timestamp + MAX_START_DELAY || startTime_ % 1 hours != 0
         ) revert InvalidStartTime();
         if (numDays_ == 0 || numDays_ > MAX_DAYS) revert InvalidNumDays();
         if (scheduleBitmap_ == 0 || (numDays_ < MAX_DAYS && scheduleBitmap_ >> numDays_ != 0)) {
