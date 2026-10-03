@@ -36,6 +36,49 @@ Tools: Slither 0.11.6 (102 detectors), Aderyn 0.6.8 (88 detectors), forge-lint (
 
 Mutation check: 12 hand-made mutants (off-by-one windows, wrong payee, missing signer/timelock/payee/resolution checks, sweep touching credits, etc.) each fail between 3 and 13 tests.
 
+## Review pass
+
+### Every external call
+
+| Line | Call | In | Target | Notes |
+| --- | --- | --- | --- | --- |
+| 157, 159 | `token.balanceOf(this)` | `fund` | USDC | Balance-delta check around the pull. |
+| 158 | `token.safeTransferFrom(msg.sender, this, totalRequired)` | `fund` | USDC | State (`funded`) already set; a revert undoes it. |
+| 166 | `token.balanceOf(this)` | `reclaimUnfunded` | USDC | |
+| 169 | `token.safeTransfer(owner, amount)` | `reclaimUnfunded` | USDC | Last statement. Only when never funded and past `startTime`. |
+| 195 | `ECDSA.tryRecover` → `ecrecover` precompile (staticcall) | `claim` | 0x01 | No state change possible. |
+| 230 | `token.safeTransfer(msg.sender, amount)` | `withdraw` | USDC | Last statement; credit zeroed first. `msg.sender` is `owner` or `beneficiary`. |
+| 237 | `token.balanceOf(this)` | `sweep` | USDC | |
+| 241 | `token.safeTransfer(owner, amount)` | `sweep` | USDC | Last statement; `amount = balance − totalCredited`. |
+
+There are no other external calls: no `call`, `delegatecall`, `staticcall` in contract code, no callbacks, no payable functions. Every state-changing function is `nonReentrant`.
+
+### Every state transition
+
+| Variable | Changes in | From → to |
+| --- | --- | --- |
+| `funded` | `fund` | `false → true`, once, only before `startTime` |
+| `dayState[d]` | `seedDay` | `Unseeded → Seeded` |
+| | `claim` | `Seeded → Claimed` |
+| | `_forfeit` (via `forfeit`, `forfeitMany`) | `Unseeded / Seeded → Forfeited` |
+| `challenge[d]` | `seedDay` | `0 → keccak(...)`, once |
+| `unresolvedDays` | `claim`, `_forfeit` | `−1` per resolution; starts at `activeDayCount` |
+| `credit[owner]`, `totalCredited` | `claim` | `+trancheAmount` |
+| `credit[beneficiary]`, `totalCredited` | `_forfeit` | `+trancheAmount` |
+| `credit[sender]`, `totalCredited` | `withdraw` | `→ 0`, `−amount` |
+| `pendingVerifier`, `pendingVerifierReadyAt` | `proposeVerifier` | set; `acceptVerifier` clears |
+| `verifier` | `acceptVerifier` | `→ pendingVerifier`, only after 48h |
+
+### Every way funds move
+
+| In | Out |
+| --- | --- |
+| `fund()`: exactly `totalRequired` from caller | `withdraw()`: credited amount to `owner` or `beneficiary` |
+| Direct transfers (never counted as funding) | `sweep()`: `balance − totalCredited` to `owner`, only when funded and every day resolved |
+| | `reclaimUnfunded()`: whole balance to `owner`, only when never funded and past `startTime` |
+
+While funded with any day unresolved, the only path out is `withdraw` of credited amounts, and credits only arise from a claim (owner) or a forfeit (beneficiary).
+
 ## Known limitations (accepted in SPEC.md §8)
 
 - The owner holds the verifier key and can sign claims without a session.
