@@ -1,0 +1,142 @@
+# Exercise definitions for the PT verifier.
+#
+# metrics: what to measure each frame. Two kinds:
+#   angle:  joint angle at the middle joint, degrees (0-180), from [a, b, c] landmark names.
+#   height: how far landmark `of` sits above landmark `above`, in torso lengths (shoulder-hip
+#           distance on the same side). Positive = higher in the image.
+# Landmark names are MediaPipe's without the side prefix (shoulder, elbow, wrist, hip, knee, ankle,
+# heel, foot_index). The side is chosen per clip: the working side for per-side exercises, or the
+# side nearest the camera for both-sides exercises.
+#
+# primary: the metric that counts reps or times holds. active: whether the working position is
+#   the high or low end of that metric.
+# sides: both      both sides move together; one clip.
+#        per_side  each side is a separate set and a separate clip (left, right).
+# thresholds: filled in from calibration (python -m ptverifier.calibrate report). Per side,
+#   because left and right baselines differ. null until calibrated.
+# status: tbd exercises are listed for completeness and skipped by the verifier.
+
+version: 1
+
+sessions:
+  PT-A: [wall_slides, serratus_pushup_plus, prone_y, prone_t, prone_w, bear_hold]
+  PT-B: [glute_bridge, dead_bug, side_plank, hinge_or_goblet]
+  Walk-A: [bulgarian_split_squat, rdl]
+
+exercises:
+  wall_slides:
+    name: Wall slides
+    view: side
+    kind: reps
+    sides: both
+    metrics:
+      shoulder_flexion: {angle: [hip, shoulder, elbow]}
+      elbow: {angle: [shoulder, elbow, wrist]}
+    primary: shoulder_flexion
+    active: high
+    target: {reps: [9, 11]}
+    thresholds: null
+
+  serratus_pushup_plus:
+    name: Serratus wall push-up plus
+    view: side
+    kind: reps
+    sides: both
+    metrics:
+      elbow: {angle: [shoulder, elbow, wrist]}
+      shoulder_flexion: {angle: [hip, shoulder, elbow]}
+    primary: elbow
+    active: high          # arms straight at the top, where the 2s hold happens
+    target: {reps: [9, 11], top_hold_s: 2}
+    thresholds: null
+
+  # Prone Y/T/W are single-arm sets here: left 7-9 reps, right half of left, per letter.
+  prone_y:
+    name: Prone Y
+    view: side
+    kind: reps
+    sides: per_side
+    metrics:
+      wrist_lift: {height: {of: wrist, above: shoulder}}
+      shoulder: {angle: [hip, shoulder, elbow]}
+      elbow: {angle: [shoulder, elbow, wrist]}
+    primary: wrist_lift
+    active: high
+    target: {reps: [7, 9]}
+    laterality: {left: 1.0, right: 0.5}
+    thresholds: null
+
+  prone_t:
+    name: Prone T
+    view: side
+    kind: reps
+    sides: per_side
+    metrics:
+      wrist_lift: {height: {of: wrist, above: shoulder}}
+      shoulder: {angle: [hip, shoulder, elbow]}
+      elbow: {angle: [shoulder, elbow, wrist]}
+    primary: wrist_lift
+    active: high
+    target: {reps: [7, 9]}
+    laterality: {left: 1.0, right: 0.5}
+    thresholds: null
+
+  prone_w:
+    name: Prone W
+    view: side
+    kind: reps
+    sides: per_side
+    metrics:
+      elbow_lift: {height: {of: elbow, above: shoulder}}
+      shoulder: {angle: [hip, shoulder, elbow]}
+      elbow: {angle: [shoulder, elbow, wrist]}
+    primary: elbow_lift
+    active: high
+    target: {reps: [7, 9]}
+    laterality: {left: 1.0, right: 0.5}
+    thresholds: null
+
+  bear_hold:
+    name: Bear hold
+    view: side
+    kind: hold
+    sides: both
+    metrics:
+      knee_lift: {height: {of: knee, above: ankle}}
+      knee: {angle: [hip, knee, ankle]}
+      hip: {angle: [shoulder, hip, knee]}
+    primary: knee_lift
+    active: high
+    target: {holds: 5, hold_s: [8, 12]}
+    thresholds: null
+
+  bulgarian_split_squat:
+    name: Bulgarian split squat
+    view: side
+    kind: reps
+    sides: per_side       # side = the front (working) leg
+    metrics:
+      knee: {angle: [hip, knee, ankle]}
+      hip: {angle: [shoulder, hip, knee]}
+    primary: knee
+    active: low
+    target: {sets: 3, reps: [8, 10]}
+    thresholds: null
+
+  rdl:
+    name: Romanian deadlift
+    view: side
+    kind: reps
+    sides: both
+    metrics:
+      hip_hinge: {angle: [shoulder, hip, knee]}
+      knee: {angle: [hip, knee, ankle]}
+    primary: hip_hinge
+    active: low
+    target: {sets: 3, reps: [8, 10]}
+    thresholds: null
+
+  glute_bridge: {name: Glute bridge, status: tbd}
+  dead_bug: {name: Dead bug, status: tbd}
+  side_plank: {name: Side plank (left emphasis), status: tbd}
+  hinge_or_goblet: {name: Hip hinge or goblet squat, status: tbd}

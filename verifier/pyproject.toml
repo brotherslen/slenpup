@@ -1,0 +1,21 @@
+[project]
+name = "ptverifier"
+version = "0.1.0"
+description = "Local PT session verifier for the PT commitment contract"
+requires-python = ">=3.11"
+dependencies = [
+  "mediapipe==1.0.1",
+  "numpy>=2.0",
+  "scipy>=1.13",
+  "pyyaml>=6.0",
+  "watchdog>=6.0",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[tool.setuptools]
+packages = ["ptverifier"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
