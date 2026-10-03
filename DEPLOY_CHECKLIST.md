@@ -22,6 +22,7 @@ One contract per commitment. Nothing is at risk until `fund()`; everything befor
 
 ## Each deploy (Anvil → Base Sepolia → mainnet small stake for two weeks → mainnet real amount)
 
+0. [ ] Anvil: `script/rehearse_anvil.sh` passes (deploys, funds, claims, forfeits, rotates the verifier, sweeps, withdraws).
 1. [ ] Dry run: `forge script script/Deploy.s.sol --rpc-url <rpc>`. No `--broadcast`.
 2. [ ] Read every printed line. Check `owner`, `beneficiary`, `verifier` character by character against their source, `totalRequired` against what you meant to lock, and `startTime` with `script/start_time.py show <ts> --tz <zone>`.
 3. [ ] Copy the `PARAMS_HASH` value by hand.

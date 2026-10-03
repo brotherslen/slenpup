@@ -1,0 +1,65 @@
+== 1. Mock USDC
+  USDC 0x5FbDB2315678afecb367f032d93F642f64180aa3
+== 2. Parameters (time zone America/Chicago, 04:00 boundary, standard-time anchor)
+START_TIME=1791108000
+  UTC:   2026-10-04 10:00 (boundary 10:00 UTC every day)
+  local: 2026-10-04 05:00 CDT  (America/Chicago)
+  during standard time: day starts 04:00, claim deadline next day 10:00
+  during daylight time: day starts 05:00, claim deadline next day 11:00
+== 3. Deploy: dry run, then broadcast with the confirmed hash
+  chainId          31337
+  owner            0x70997970C51812dc3A010C7d01b50e0d17dc79C8
+  beneficiary      0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC
+  verifier         0x90F79bf6EB2c4f870365E785982E1f101E93b906
+  token            0x5FbDB2315678afecb367f032d93F642f64180aa3
+  startTime (UTC)  1791108000
+  numDays          4
+  active days      3
+  trancheAmount    25.000000 USDC
+  totalRequired    75.000000 USDC
+  graceSeconds     21600
+  PARAMS_HASH      0x83e9c1d7483918adf27b764ae5067e42dd4fa0984686aa73a28a8d6a57bd2765
+  ok  wrong hash refused
+  PTCommitment 0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512
+  ok  owner = 0x70997970C51812dc3A010C7d01b50e0d17dc79C8
+  ok  beneficiary = 0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC
+  ok  totalRequired (3 active x 25 USDC) = 75000000
+== 4. Fund from owner
+  ok  reverted NotFunded
+  ok  funded = true
+  ok  contract balance = 75000000
+  ok  reverted AlreadyFunded
+== 5. Day 0: seed at 04:05 local, claim from the relayer
+  ok  reverted DayNotStarted
+  ok  reverted AlreadySeeded
+  ok  reverted InvalidSignature
+  ok  reverted InvalidSignature
+  ok  day 0 state Claimed = 2
+  ok  owner credit = 25000000
+== 6. Verifier rotation proposed (key-loss drill)
+  ok  reverted VerifierTimelocked
+  ok  reverted NotOwner
+== 7. Day 1: missed. Forfeit refused at the deadline, accepted one second later
+  ok  reverted ClaimWindowOpen
+  ok  chain time == claimDeadline(1) + 1 = 1791302401
+  ok  day 1 state Forfeited = 3
+  ok  beneficiary credit = 25000000
+== 8. Day 2: rest day
+  ok  reverted InactiveDay
+== 9. Rotation accepted after 48h; old key now refused
+  ok  verifier rotated = 0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc
+== 10. Day 3: seeded 5h into grace, claimed at the exact deadline with the new key
+  ok  reverted InvalidSignature
+  ok  claim block timestamp == claimDeadline(3) = 1791475200
+  ok  unresolved days = 0
+== 11. Stray donation, sweep, withdrawals
+  ok  reverted NotOwner
+  ok  reverted NothingToSweep
+  ok  reverted NotPayee
+  ok  reverted NothingToWithdraw
+  ok  owner USDC (2 tranches + swept 1.234567) = 51234567
+  ok  beneficiary USDC (1 tranche) = 25000000
+  ok  contract USDC = 0
+== 12. Contract rejects ETH
+  ok  ETH send reverted
+REHEARSAL PASSED
