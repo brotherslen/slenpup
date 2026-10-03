@@ -124,7 +124,7 @@ contract PTCommitment is EIP712, ReentrancyGuard {
         if (trancheAmount_ == 0) revert ZeroTranche();
         if (graceSeconds_ > MAX_GRACE) revert GraceTooLong();
 
-        uint256 count;
+        uint256 count = 0;
         uint256 bits = scheduleBitmap_;
         while (bits != 0) {
             bits &= bits - 1;

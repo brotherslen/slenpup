@@ -1,6 +1,6 @@
 # PTCommitment — contract spec (draft, awaiting sign-off)
 
-Status: draft v1, awaiting sign-off. No code exists yet. Contract design decisions are settled (§9). The remaining open items are deploy-time parameters and don't change the code.
+Status: v1, signed off 2026-10-03. Implemented in `src/PTCommitment.sol`. Contract design decisions are settled (§9). The remaining open items are deploy-time parameters and don't change the code.
 
 ## 1. What this contract is
 
@@ -43,14 +43,14 @@ Operational failures and their defined outcomes:
 
 ## 4. Constructor and immutables
 
-All of these are `immutable`. None can change after deploy.
+All of these are `immutable`. None can change after deploy. All are `uint256` in code (immutables don't pack, so narrower types only add casts).
 
 | Name | Type | Validation (revert if violated) |
 | --- | --- | --- |
 | `owner` | `address` | `!= 0` |
-| `beneficiary` | `address` | `!= 0`, `!= owner`, `!= address(this)` |
+| `beneficiary` | `address` | `!= 0`, `!= owner`, `!= address(this)` (likewise `owner != address(this)`) |
 | `token` | `IERC20` | `!= 0`, has code |
-| `startTime` | `uint64` | `> block.timestamp`, `% 3600 == 0` (on the hour). Deploy value: 04:00 local, converted to UTC at deploy time (§9) |
+| `startTime` | `uint64` | `> block.timestamp`, `<= block.timestamp + 365 days` (`MAX_START_DELAY`, catches a milliseconds-for-seconds typo that would otherwise lock funds for millennia), `% 3600 == 0` (on the hour). Deploy value: 04:00 local, converted to UTC at deploy time (§9) |
 | `numDays` | `uint16` | `1..256` |
 | `scheduleBitmap` | `uint256` | `!= 0`; no bit set at index `>= numDays` |
 | `trancheAmount` | `uint256` | `> 0` |
@@ -187,7 +187,7 @@ Still open. None of these change the contract code; they're constructor argument
 1. Stake size and number of days (`trancheAmount`, `numDays`). Max 256 days per contract.
 2. Schedule bitmap, and which days map to PT-A, PT-B, Walk-A, rest. The contract only stores active/rest. The session-type mapping lives in the verifier's config.
 3. Beneficiary address.
-4. Time zone for the 04:00 boundary. The chain has no DST, so the boundary is fixed in UTC and moves by an hour locally twice a year. Pick whether 04:00 holds in standard time (05:00 boundary, 11:00 deadline in summer) or daylight time (03:00 boundary, 09:00 deadline in winter).
+4. Time zone for the 04:00 boundary: America/Chicago for now, passed to the deploy helper as a parameter, never hard-coded. The chain has no DST, so the boundary is fixed in UTC and moves by an hour locally twice a year. Pick whether 04:00 holds in standard time (05:00 boundary, 11:00 deadline in summer) or daylight time (03:00 boundary, 09:00 deadline in winter).
 5. Video retention period (verifier only).
 
 Proposed, not built (per "propose, don't build"):

@@ -1,0 +1,43 @@
+INFO:Detectors:
+Detector: incorrect-equality
+PTCommitment.reclaimUnfunded() (src/PTCommitment.sol#163-170) uses a dangerous strict equality:
+	- amount == 0 (src/PTCommitment.sol#167)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#dangerous-strict-equalities
+INFO:Detectors:
+Detector: unused-return
+PTCommitment.claim(uint256,bytes32,uint32,bytes) (src/PTCommitment.sol#188-203) ignores return value by (signer,err,None) = ECDSA.tryRecover(claimDigest(d,videoHash,score),sig) (src/PTCommitment.sol#195)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#unused-return
+INFO:Detectors:
+Detector: timestamp
+PTCommitment.constructor(address,address,address,IERC20,uint256,uint256,uint256,uint256,uint256) (src/PTCommitment.sol#100-146) uses timestamp for comparisons
+	Dangerous comparisons:
+	- startTime_ <= block.timestamp || startTime_ > block.timestamp + MAX_START_DELAY || startTime_ % 3600 != 0 (src/PTCommitment.sol#117-118)
+PTCommitment.fund() (src/PTCommitment.sol#151-160) uses timestamp for comparisons
+	Dangerous comparisons:
+	- block.timestamp >= startTime (src/PTCommitment.sol#153)
+PTCommitment.reclaimUnfunded() (src/PTCommitment.sol#163-170) uses timestamp for comparisons
+	Dangerous comparisons:
+	- block.timestamp < startTime (src/PTCommitment.sol#165)
+PTCommitment.acceptVerifier() (src/PTCommitment.sol#255-264) uses timestamp for comparisons
+	Dangerous comparisons:
+	- block.timestamp < pendingVerifierReadyAt (src/PTCommitment.sol#258)
+PTCommitment._requireClaimWindow(uint256) (src/PTCommitment.sol#298-301) uses timestamp for comparisons
+	Dangerous comparisons:
+	- block.timestamp < dayStart(d) (src/PTCommitment.sol#299)
+	- block.timestamp > claimDeadline(d) (src/PTCommitment.sol#300)
+PTCommitment._forfeit(uint256) (src/PTCommitment.sol#309-316) uses timestamp for comparisons
+	Dangerous comparisons:
+	- block.timestamp <= claimDeadline(d) (src/PTCommitment.sol#310)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#block-timestamp
+INFO:Detectors:
+Detector: costly-loop
+PTCommitment._forfeit(uint256) (src/PTCommitment.sol#309-316) has costly operations inside a loop:
+	- -- unresolvedDays (src/PTCommitment.sol#312)
+	Calls stack containing the loop:
+		PTCommitment.forfeitMany(uint256[])
+PTCommitment._forfeit(uint256) (src/PTCommitment.sol#309-316) has costly operations inside a loop:
+	- totalCredited += trancheAmount (src/PTCommitment.sol#314)
+	Calls stack containing the loop:
+		PTCommitment.forfeitMany(uint256[])
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#costly-operations-inside-a-loop
+INFO:Slither:. analyzed (18 contracts with 102 detectors), 10 result(s) found
