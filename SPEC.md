@@ -169,7 +169,7 @@ Verifier requirements that came out of the contract review (phase 2):
 - One video, one day. In the grace overlap, days `d` and `d+1` can both be seeded, so one recording could contain both days' words. The verifier matches a clip to the first of a day's words spoken in it and keeps a ledger of video hashes; a video that counted for one day is refused for any other (built 2026-10-04, `verifier/ptverifier/session.py`).
 
 Ways funds could get stuck:
-- A beneficiary (or owner) that can't call `withdraw()`: an exchange deposit address, or a contract with no generic call function. Payouts are pull-only, so its credits sit forever. Choose a beneficiary address controlled by a person with a normal wallet. `withdrawFor` (§9, proposed) would remove this risk.
+- A beneficiary (or owner) that can't call `withdraw()`: an exchange deposit address, or a contract with no generic call function. Payouts are pull-only, so its credits sit forever. Choose a beneficiary address controlled by a person with a normal wallet. (Decided 2026-10-04: the beneficiary has a normal wallet, so `withdrawFor` isn't built.)
 - Blacklisted owner or beneficiary (§2 table). The brief forbids redirecting payouts, so these credits wait until Circle unblacklists. I've kept that behaviour.
 - Lost owner key strands owner credits and the final sweep. Mitigation is off-chain: seed phrase backup for the hardware wallet.
 - Non-USDC tokens sent by mistake are stuck forever. Accepted: `sweep` handles USDC only.
@@ -198,5 +198,5 @@ Still open. None of these change the contract code; they're constructor argument
 5. Video retention period (verifier only).
 
 Proposed, not built (per "propose, don't build"):
-- `withdrawFor(account)`: anyone can push credits to `owner` or `beneficiary`. Same destinations, so the key property holds, and the relayer could push your credits without the hardware wallet signing. Needs an exception to "sends the caller's balance".
+- ~~`withdrawFor(account)`~~: declined 2026-10-04. The beneficiary has a normal wallet and can call `withdraw()` itself.
 - `usedVideoHash` mapping to reject reusing one video for two days. Words already make this fail at the verifier, so it's belt-and-braces.

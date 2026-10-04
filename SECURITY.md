@@ -17,7 +17,7 @@ A fresh-context reviewer (no access to my reasoning) audited the contract agains
 
 | ID | Finding | Outcome |
 | --- | --- | --- |
-| L-1 | Token address accepted as a payee; more generally, any payee that can't call `withdraw` strands its credits | Token case fixed (above). General case documented in SPEC §8 and DEPLOY_CHECKLIST; `withdrawFor` remains a proposal for you to decide. |
+| L-1 | Token address accepted as a payee; more generally, any payee that can't call `withdraw` strands its credits | Token case fixed (above). General case documented in SPEC §8 and DEPLOY_CHECKLIST. `withdrawFor` declined: the beneficiary has a normal wallet. |
 | I-1 | Verifier rotation lets the owner install any key after 48h | Same power as holding the verifier key, which the threat model accepts. Now stated in SPEC §8. |
 | I-2 | A pending verifier can only be overwritten, not cancelled | Left as is: acceptance is owner-only, so a stale proposal can't take effect on its own. |
 | I-3 | A reorg of the `seedDay` tx changes the challenge and voids signatures over the old one | Verifier requirement added to SPEC §8: read the challenge from a finalized block. |
