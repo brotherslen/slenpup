@@ -129,7 +129,7 @@ Claim(uint256 day,bytes32 challenge,bytes32 videoHash,uint32 score)
 
 `challenge` is read from `challenge[d]` in storage, never from calldata. Digest is `_hashTypedDataV4(keccak256(abi.encode(CLAIM_TYPEHASH, d, challenge[d], videoHash, score)))`. Recovery uses `ECDSA.tryRecover` and reverts `InvalidSignature` on any error or mismatch; OZ rejects high-`s` and the zero address.
 
-The contract does not interpret `score`; there is no on-chain minimum. The verifier only signs on a pass, and `score` is carried for the record and emitted.
+The contract does not interpret `score`; there is no on-chain minimum. The verifier only signs on a pass, and `score` is carried for the record and emitted. The verifier will set it to the number of exercise positions confirmed that day.
 
 Front-running a claim is harmless: whoever submits it, the tranche is credited to `owner`.
 
@@ -158,7 +158,7 @@ Invariant 4 replaces the brief's "claimed + forfeited + unresolved × tranche + 
 
 Ways the owner could get money back without doing sessions:
 - **Holding the verifier key.** Accepted by the threat model.
-- **Grinding the challenge.** `seedDay` is permissionless and `blockhash(block.number - 1)` is known before the tx lands. The owner's relayer could simulate, wait a few 2-second blocks, and only seed when targets come out at the low end of each range. That's active cheating, so it's in-model, but it's cheap and scriptable. The off-chain fix is to make targets matter less than words (words defeat pre-recording; targets only vary effort within a range you already chose). I'm not changing the contract for this.
+- **Grinding the challenge.** Closed by design (2026-10-04). `seedDay` is permissionless and `blockhash(block.number - 1)` is known before the tx lands, so the owner's relayer could pick among a few candidate challenges. That mattered while the challenge also set rep and hold targets. The verifier now confirms each exercise's position held for 5 seconds and derives only the spoken words from the challenge, so no candidate is easier than another.
 - **Beneficiary under the owner's control.** The contract can only check `beneficiary != owner`. The commitment only bites if the beneficiary is someone you'd rather not pay.
 - **Grace window overlap.** Day `d`'s claim window and day `d+1`'s overlap for `graceSeconds`. With a 04:00 boundary and 6h grace, day `d`'s deadline is 10:00 the next morning, so a missed evening can be made up before 10:00 alongside that morning's session. `MAX_GRACE = 12h` keeps a deploy typo from widening this past half a day.
 

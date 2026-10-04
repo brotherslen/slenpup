@@ -98,7 +98,7 @@ While funded with any day unresolved, the only path out is `withdraw` of credite
 ## Known limitations (accepted in SPEC.md §8)
 
 - The owner holds the verifier key and can sign claims without a session.
-- `seedDay` is permissionless and uses the previous block hash, so the owner's relayer can grind a few blocks for easy targets.
+- `seedDay` is permissionless and uses the previous block hash, so the owner's relayer can choose among a few candidate challenges. Harmless since the 2026-10-04 switch to position confirmation: the challenge only picks spoken words, and no set of words is easier than another.
 - A USDC-blacklisted owner or beneficiary strands that party's credits until unblacklisted. Blacklisting the contract itself strands everything.
 - A lost owner key strands owner credits and the final sweep.
 

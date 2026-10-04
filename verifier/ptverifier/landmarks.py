@@ -57,6 +57,12 @@ def compute_metric(frames: np.ndarray, side: str, kind: str, joints: tuple[str, 
         of, above = (joint_xy(frames, side, j) for j in joints)
         # Image y grows downward, so "of is higher than above" is above_y - of_y.
         values = (above[:, 1] - of[:, 1]) / torso_length(frames, side)
+    elif kind == "tilt":
+        start, end = (joint_xy(frames, side, j) for j in joints)
+        seg = end - start
+        with np.errstate(invalid="ignore", divide="ignore"):
+            # Angle from image-up (0, -1); facing left or right gives the same value.
+            values = np.degrees(np.arccos(np.clip(-seg[:, 1] / np.linalg.norm(seg, axis=-1), -1.0, 1.0)))
     else:
         raise ValueError(kind)
     values = values.astype(float)

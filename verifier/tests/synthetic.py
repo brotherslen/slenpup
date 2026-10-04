@@ -1,4 +1,4 @@
-"""Synthetic side-view pose tracks with known rep and hold counts."""
+"""Synthetic side-view pose tracks: a body moving between known postures."""
 
 from __future__ import annotations
 
@@ -8,74 +8,44 @@ from ptverifier.landmarks import NUM_LANDMARKS, index
 from ptverifier.pose import PoseTrack
 
 FPS = 30.0
-SHOULDER = np.array([500.0, 300.0])
-HIP = np.array([500.0, 500.0])  # torso = 200 px
-KNEE = np.array([600.0, 520.0])
-ANKLE = np.array([600.0, 700.0])
+
+# Near-side joint pixel positions for a few postures, side view, facing right.
+POSTURES = {
+    # standing, arms overhead against the wall (wall slide top)
+    "wall_slide": {"shoulder": (500, 300), "elbow": (520, 170), "wrist": (530, 50), "hip": (500, 500), "knee": (505, 620), "ankle": (500, 740)},
+    # standing, arms down (rest between sets)
+    "standing": {"shoulder": (500, 300), "elbow": (505, 420), "wrist": (510, 520), "hip": (500, 500), "knee": (505, 620), "ankle": (500, 740)},
+    # face down, left arm raised forward and up (prone Y)
+    "prone_y": {"shoulder": (600, 600), "elbow": (730, 560), "wrist": (850, 520), "hip": (400, 605), "knee": (250, 610), "ankle": (100, 615)},
+    # face down, arm raised less (a weaker right side)
+    "prone_y_low": {"shoulder": (600, 600), "elbow": (735, 585), "wrist": (860, 570), "hip": (400, 605), "knee": (250, 610), "ankle": (100, 615)},
+    # bear hold: hands and feet, knees bent ~90, hips at shoulder height
+    "bear": {"shoulder": (600, 450), "elbow": (605, 550), "wrist": (610, 650), "hip": (400, 455), "knee": (420, 555), "ankle": (320, 600)},
+}
 
 
-def rep_profile(n_reps: int, low: float, high: float, rest_s=1.0, move_s=1.5, top_s=0.5, lead_s=1.0, tail_s=1.0) -> tuple[np.ndarray, np.ndarray]:
-    """(t_seconds, value): rest at `low`, smooth rise to `high`, brief top, smooth return."""
-    seg = []
-    seg.append(np.full(int(lead_s * FPS), low))
-    for _ in range(n_reps):
-        up = low + (high - low) * (1 - np.cos(np.linspace(0, np.pi, int(move_s * FPS)))) / 2
-        seg += [up, np.full(int(top_s * FPS), high), up[::-1], np.full(int(rest_s * FPS), low)]
-    seg.append(np.full(int(tail_s * FPS), low))
-    v = np.concatenate(seg)
-    return np.arange(v.size) / FPS, v
-
-
-def _blank(n: int) -> np.ndarray:
+def posture_track(segments: list[tuple[str, float]], near: str = "left", noise_px: float = 1.5, seed: int = 0, mirror: bool = False) -> PoseTrack:
+    """Holds each (posture, seconds) in turn with 1 s linear transitions between them. The near side is
+    clearly visible; the far side gets the same pose at low visibility, as a side camera sees it."""
+    rng = np.random.default_rng(seed)
+    keys = []
+    for i, (name, secs) in enumerate(segments):
+        if i:
+            prev = segments[i - 1][0]
+            for k in range(int(FPS)):
+                keys.append((prev, name, (k + 1) / FPS))
+        keys += [(name, name, 0.0)] * int(secs * FPS)
+    n = len(keys)
     frames = np.full((n, NUM_LANDMARKS, 4), np.nan)
     frames[:, :, 2:] = 0.0
-    return frames
-
-
-def _place(frames, side, joint, xy, vis):
-    i = index(side, joint)
-    frames[:, i, :2] = xy
-    frames[:, i, 2] = vis
-    frames[:, i, 3] = 1.0
-
-
-def arm_track(theta_deg: np.ndarray, near: str = "left", noise_px: float = 2.0, seed: int = 0) -> PoseTrack:
-    """Shoulder flexion = theta (angle hip-shoulder-elbow), elbow straight. Near side clearly visible,
-    far side the same pose but low visibility, as a side-view camera sees it."""
-    rng = np.random.default_rng(seed)
-    n = theta_deg.size
-    th = np.radians(theta_deg)
-    direction = np.stack([np.sin(th), np.cos(th)], axis=1)
-    frames = _blank(n)
-    for side, vis in ((near, 0.95), ("right" if near == "left" else "left", 0.3)):
-        jitter = lambda: rng.normal(0, noise_px, (n, 2))  # noqa: E731
-        _place(frames, side, "shoulder", SHOULDER + jitter(), vis)
-        _place(frames, side, "hip", HIP + jitter(), vis)
-        _place(frames, side, "elbow", SHOULDER + 150 * direction + jitter(), vis)
-        _place(frames, side, "wrist", SHOULDER + 280 * direction + jitter(), vis)
-        _place(frames, side, "knee", KNEE + jitter(), vis)
-        _place(frames, side, "ankle", ANKLE + jitter(), vis)
+    far = "right" if near == "left" else "left"
+    for joint in POSTURES["standing"]:
+        xy = np.array([(1 - w) * np.array(POSTURES[a][joint]) + w * np.array(POSTURES[b][joint]) for a, b, w in keys], dtype=float)
+        if mirror:
+            xy[:, 0] = 1280 - xy[:, 0]
+        for side, vis in ((near, 0.95), (far, 0.3)):
+            i = index(side, joint)
+            frames[:, i, :2] = xy + rng.normal(0, noise_px, (n, 2))
+            frames[:, i, 2] = vis
+            frames[:, i, 3] = 1.0
     return PoseTrack(np.arange(n) * 1000.0 / FPS, frames, 1280, 720, FPS)
-
-
-def knee_lift_track(lift_torso: np.ndarray, near: str = "left", noise_px: float = 1.5, seed: int = 0) -> PoseTrack:
-    """Knee raised `lift_torso` torso-lengths above the ankle (bear hold)."""
-    rng = np.random.default_rng(seed)
-    n = lift_torso.size
-    frames = _blank(n)
-    for side, vis in ((near, 0.95), ("right" if near == "left" else "left", 0.3)):
-        jitter = lambda: rng.normal(0, noise_px, (n, 2))  # noqa: E731
-        ankle = np.tile(ANKLE, (n, 1))
-        knee = ankle - np.stack([np.zeros(n), 200 * lift_torso], axis=1)
-        _place(frames, side, "shoulder", SHOULDER + jitter(), vis)
-        _place(frames, side, "hip", HIP + jitter(), vis)
-        _place(frames, side, "knee", knee + jitter(), vis)
-        _place(frames, side, "ankle", ankle + jitter(), vis)
-    return PoseTrack(np.arange(n) * 1000.0 / FPS, frames, 1280, 720, FPS)
-
-
-def hold_profile(n_holds: int, hold_s: float, rest_s: float, low: float, high: float) -> np.ndarray:
-    seg = [np.full(int(rest_s * FPS), low)]
-    for _ in range(n_holds):
-        seg += [np.full(int(hold_s * FPS), high), np.full(int(rest_s * FPS), low)]
-    return np.concatenate(seg)

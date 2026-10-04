@@ -10,7 +10,7 @@ import yaml
 
 from .landmarks import JOINTS
 
-Side = Literal["left", "right"]
+SIDES = ("left", "right")
 
 
 class ExerciseConfigError(ValueError):
@@ -20,8 +20,8 @@ class ExerciseConfigError(ValueError):
 @dataclass(frozen=True)
 class Metric:
     name: str
-    kind: Literal["angle", "height"]
-    joints: tuple[str, ...]  # angle: (a, b, c), vertex b. height: (of, above).
+    kind: Literal["angle", "height", "tilt"]
+    joints: tuple[str, ...]  # angle: (a, b, c), vertex b. height: (of, above). tilt: (from, to).
 
 
 @dataclass(frozen=True)
@@ -29,14 +29,10 @@ class Exercise:
     key: str
     name: str
     view: str
-    kind: Literal["reps", "hold"]
     sides: Literal["both", "per_side"]
     metrics: dict[str, Metric]
-    primary: str
-    active: Literal["high", "low"]
-    target: dict
-    laterality: dict[str, float] | None = None
-    thresholds: dict | None = None
+    min_position_s: float
+    bands: dict[str, dict[str, tuple[float, float]]] | None = None  # side -> metric -> (low, high)
 
 
 @dataclass(frozen=True)
@@ -62,25 +58,40 @@ def _metric(ex: str, name: str, raw: dict) -> Metric:
     elif "height" in raw:
         joints = (raw["height"]["of"], raw["height"]["above"])
         kind = "height"
+    elif "tilt" in raw:
+        joints = (raw["tilt"]["from"], raw["tilt"]["to"])
+        kind = "tilt"
     else:
-        raise ExerciseConfigError(f"{ex}.{name}: metric must be angle or height")
+        raise ExerciseConfigError(f"{ex}.{name}: metric must be angle, height, or tilt")
     for j in joints:
         if j not in JOINTS:
             raise ExerciseConfigError(f"{ex}.{name}: unknown joint {j!r}")
     return Metric(name, kind, joints)
 
 
-def _choice(ex: str, raw: dict, key: str, options: tuple[str, ...]) -> str:
-    value = raw.get(key)
-    if value not in options:
-        raise ExerciseConfigError(f"{ex}.{key} must be one of {options}, got {value!r}")
-    return value
+def _bands(ex: str, raw, metrics: dict[str, Metric]):
+    if raw is None:
+        return None
+    out = {}
+    for side, per_metric in raw.items():
+        if side not in SIDES:
+            raise ExerciseConfigError(f"{ex}.bands: side must be left or right, got {side!r}")
+        if set(per_metric) != set(metrics):
+            raise ExerciseConfigError(f"{ex}.bands.{side}: needs exactly the metrics {sorted(metrics)}")
+        out[side] = {}
+        for name, band in per_metric.items():
+            lo, hi = (float(x) for x in band)
+            if not lo < hi:
+                raise ExerciseConfigError(f"{ex}.bands.{side}.{name}: low must be below high")
+            out[side][name] = (lo, hi)
+    return out
 
 
 def load_catalog(path: str | Path) -> Catalog:
     data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
-    if data.get("version") != 1:
-        raise ExerciseConfigError("exercises.yaml: unsupported version")
+    if data.get("version") != 2:
+        raise ExerciseConfigError("exercises.yaml: unsupported version (expected 2)")
+    default_min = float(data.get("min_position_s", 5))
     exercises: dict[str, Exercise] = {}
     tbd: dict[str, str] = {}
     for key, raw in data["exercises"].items():
@@ -88,23 +99,17 @@ def load_catalog(path: str | Path) -> Catalog:
             tbd[key] = raw.get("name", key)
             continue
         metrics = {name: _metric(key, name, m) for name, m in raw["metrics"].items()}
-        if raw.get("primary") not in metrics:
-            raise ExerciseConfigError(f"{key}.primary must name one of its metrics")
-        laterality = raw.get("laterality")
-        if laterality is not None and set(laterality) != {"left", "right"}:
-            raise ExerciseConfigError(f"{key}.laterality needs left and right")
+        sides = raw.get("sides")
+        if sides not in ("both", "per_side"):
+            raise ExerciseConfigError(f"{key}.sides must be both or per_side, got {sides!r}")
         exercises[key] = Exercise(
             key=key,
             name=raw["name"],
             view=raw.get("view", "side"),
-            kind=_choice(key, raw, "kind", ("reps", "hold")),
-            sides=_choice(key, raw, "sides", ("both", "per_side")),
+            sides=sides,
             metrics=metrics,
-            primary=raw["primary"],
-            active=_choice(key, raw, "active", ("high", "low")),
-            target=raw.get("target") or {},
-            laterality=laterality,
-            thresholds=raw.get("thresholds"),
+            min_position_s=float(raw.get("min_position_s", default_min)),
+            bands=_bands(key, raw.get("bands"), metrics),
         )
     sessions = data.get("sessions", {})
     for session, keys in sessions.items():

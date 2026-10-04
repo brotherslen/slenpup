@@ -1,32 +1,42 @@
-"""Signal processing for metric time series: resampling, smoothing, rep and hold detection, stats."""
+"""Signal processing for metric time series: resampling, smoothing, stillness, and spans."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 import numpy as np
 from scipy.ndimage import median_filter, uniform_filter1d
-from scipy.signal import find_peaks
 
 RATE_HZ = 30.0
 MAX_GAP_S = 0.5  # gaps in valid samples longer than this stay NaN instead of being interpolated
+MAX_DROPOUT_S = 0.3  # a span survives a dropout this short (a few lost frames)
+
+# A metric counts as "still" when its rolling 1 s standard deviation is under this.
+STILL_STD = {"angle": 4.0, "height": 0.03, "tilt": 4.0}
+# Calibrated bands are widened by this on each side, so a normal day's variation still passes.
+BAND_MARGIN = {"angle": 8.0, "height": 0.05, "tilt": 8.0}
 
 
-def resample(t_ms: np.ndarray, values: np.ndarray, rate_hz: float = RATE_HZ) -> tuple[np.ndarray, np.ndarray]:
-    """Uniform-rate series in seconds. Short gaps are linearly filled; long gaps stay NaN."""
+def grid_for(t_ms: np.ndarray, rate_hz: float = RATE_HZ) -> np.ndarray:
+    """Uniform time grid in seconds covering the clip."""
+    t = t_ms[np.isfinite(t_ms)] / 1000.0
+    if t.size < 2:
+        return np.empty(0)
+    return np.arange(t[0], t[-1], 1.0 / rate_hz)
+
+
+def resample(t_ms: np.ndarray, values: np.ndarray, grid: np.ndarray) -> np.ndarray:
+    """Values on `grid`. Short gaps are linearly filled; long gaps and the ends outside valid data stay NaN."""
     ok = np.isfinite(values) & np.isfinite(t_ms)
-    if ok.sum() < 2:
-        return np.empty(0), np.empty(0)
+    out = np.full(grid.shape, np.nan)
+    if ok.sum() < 2 or grid.size == 0:
+        return out
     t = t_ms[ok] / 1000.0
     v = values[ok]
-    grid = np.arange(t[0], t[-1], 1.0 / rate_hz)
-    out = np.interp(grid, t, v)
-    # Blank grid points that fall inside a long gap between valid samples.
+    out = np.interp(grid, t, v, left=np.nan, right=np.nan)
     idx = np.searchsorted(t, grid, side="right")
     prev_t = t[np.clip(idx - 1, 0, len(t) - 1)]
     next_t = t[np.clip(idx, 0, len(t) - 1)]
     out[(next_t - prev_t) > MAX_GAP_S] = np.nan
-    return grid, out
+    return out
 
 
 def smooth(values: np.ndarray, window: int = 5) -> np.ndarray:
@@ -58,97 +68,51 @@ def stats(values: np.ndarray) -> dict:
         "p75": float(p[3]),
         "p95": float(p[4]),
         "max": float(v.max()),
-        "mean": float(v.mean()),
-        "std": float(v.std()),
     }
 
 
-@dataclass
-class Extremes:
-    active: np.ndarray  # values at the working end of each rep (peaks if active=high)
-    rest: np.ndarray  # values at the rest end between reps
-    active_t: np.ndarray
-    rest_t: np.ndarray
+def rolling_std(values: np.ndarray, window: int) -> np.ndarray:
+    """Centered rolling standard deviation; NaN wherever the window touches a NaN."""
+    out = np.full(values.shape, np.nan)
+    if values.size < window:
+        return out
+    win = np.lib.stride_tricks.sliding_window_view(values, window)
+    sd = np.std(win, axis=-1)  # NaN if any NaN in the window
+    half = window // 2
+    out[half : half + sd.size] = sd
+    return out
 
 
-# Below these p05-p95 ranges a clip is treated as "no movement", so tracking jitter can't pose as reps.
-MIN_SPAN = {"angle": 10.0, "height": 0.05}
+def still_mask(series: dict[str, np.ndarray], kinds: dict[str, str], window_s: float = 1.0) -> np.ndarray:
+    """True where every metric is finite and its rolling std is under its STILL_STD."""
+    window = max(3, int(window_s * RATE_HZ))
+    masks = [rolling_std(v, window) < STILL_STD[kinds[name]] for name, v in series.items()]
+    return np.logical_and.reduce(masks)
 
 
-def find_extremes(t: np.ndarray, values: np.ndarray, active: str, min_span: float, min_period_s: float = 0.8) -> Extremes:
-    """Active and rest extremes, using a prominence of 30% of the clip's p05-p95 range."""
-    v = np.where(np.isfinite(values), values, np.nanmedian(values) if np.isfinite(values).any() else 0.0)
-    sign = 1.0 if active == "high" else -1.0
-    span = np.nanpercentile(values, 95) - np.nanpercentile(values, 5) if np.isfinite(values).any() else 0.0
-    if not span >= min_span:
-        return Extremes(np.empty(0), np.empty(0), np.empty(0), np.empty(0))
-    distance = max(1, int(min_period_s * RATE_HZ))
-    a_idx, _ = find_peaks(sign * v, prominence=0.3 * span, distance=distance)
-    r_idx, _ = find_peaks(-sign * v, prominence=0.3 * span, distance=distance)
-    return Extremes(v[a_idx], v[r_idx], t[a_idx], t[r_idx])
+def in_band_mask(series: dict[str, np.ndarray], bands: dict[str, tuple[float, float]]) -> np.ndarray:
+    """True where every metric is finite and inside its [low, high] band."""
+    masks = [np.isfinite(v) & (v >= bands[name][0]) & (v <= bands[name][1]) for name, v in series.items()]
+    return np.logical_and.reduce(masks)
 
 
-def suggest_rep_thresholds(ex: Extremes) -> dict | None:
-    """Enter-active at 65% of the way from rest to active, back-to-rest at 35%. Medians, so a few bad reps don't move it."""
-    if ex.active.size == 0 or ex.rest.size == 0:
-        return None
-    a = float(np.median(ex.active))
-    r = float(np.median(ex.rest))
-    return {"rest_median": r, "active_median": a, "enter": r + 0.65 * (a - r), "exit": r + 0.35 * (a - r)}
-
-
-def count_reps(values: np.ndarray, enter: float, exit: float, active: str) -> int:
-    """Hysteresis counter: a rep is rest -> past `enter` -> back past `exit`.
-
-    If a clip (or the stretch after a tracking gap) starts already past `enter`, that partial rep
-    isn't counted. A gap resets the state, so a rep split by lost tracking isn't counted either.
-    """
-    sign = 1.0 if active == "high" else -1.0
-    enter_s, exit_s = sign * enter, sign * exit
-    state = "unknown"
-    reps = 0
-    for x in values:
-        if not np.isfinite(x):
-            state = "unknown"
-            continue
-        s = sign * x
-        if state == "unknown":
-            state = "partial" if s >= enter_s else "rest"
-        elif state == "rest" and s >= enter_s:
-            state = "active"
-        elif state in ("active", "partial") and s <= exit_s:
-            reps += state == "active"
-            state = "rest"
-    return reps
-
-
-def suggest_hold_threshold(values: np.ndarray) -> dict | None:
-    """Midpoint between the low (p10) and high (p90) clusters of a hold clip."""
-    v = values[np.isfinite(values)]
-    if v.size < 2:
-        return None
-    lo, hi = np.percentile(v, [10, 90])
-    if not hi > lo:
-        return None
-    return {"low_p10": float(lo), "high_p90": float(hi), "threshold": float((lo + hi) / 2)}
-
-
-def find_holds(t: np.ndarray, values: np.ndarray, threshold: float, active: str, min_s: float = 2.0, max_dropout_s: float = 0.3) -> list[tuple[float, float]]:
-    """(start, duration) of spans past `threshold`, bridging dropouts up to max_dropout_s."""
-    sign = 1.0 if active == "high" else -1.0
-    inside = np.isfinite(values) & (sign * values >= sign * threshold)
-    holds: list[tuple[float, float]] = []
-    start = None
-    last_in = None
-    for ti, ok in zip(t, inside):
+def spans(t: np.ndarray, mask: np.ndarray, min_s: float = 0.0, max_dropout_s: float = MAX_DROPOUT_S) -> list[tuple[float, float]]:
+    """(start_s, duration_s) of runs where mask is True, bridging dropouts up to max_dropout_s."""
+    out: list[tuple[float, float]] = []
+    start = last = None
+    for ti, ok in zip(t, mask):
         if ok:
             if start is None:
                 start = ti
-            last_in = ti
-        elif start is not None and ti - last_in > max_dropout_s:
-            if last_in - start >= min_s:
-                holds.append((float(start), float(last_in - start)))
+            last = ti
+        elif start is not None and ti - last > max_dropout_s:
+            if last - start >= min_s:
+                out.append((float(start), float(last - start)))
             start = None
-    if start is not None and last_in - start >= min_s:
-        holds.append((float(start), float(last_in - start)))
-    return holds
+    if start is not None and last - start >= min_s:
+        out.append((float(start), float(last - start)))
+    return out
+
+
+def longest(found: list[tuple[float, float]]) -> tuple[float, float] | None:
+    return max(found, key=lambda s: s[1]) if found else None
