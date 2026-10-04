@@ -49,3 +49,13 @@ def posture_track(segments: list[tuple[str, float]], near: str = "left", noise_p
             frames[:, i, 2] = vis
             frames[:, i, 3] = 1.0
     return PoseTrack(np.arange(n) * 1000.0 / FPS, frames, 1280, 720, FPS)
+
+
+def concat(*tracks: PoseTrack) -> PoseTrack:
+    """Back-to-back clips as one continuous track (e.g. left side, turn around, right side)."""
+    t, frames, offset = [], [], 0.0
+    for tr in tracks:
+        t.append(tr.t_ms + offset)
+        frames.append(tr.frames)
+        offset = t[-1][-1] + 1000.0 / FPS
+    return PoseTrack(np.concatenate(t), np.concatenate(frames), tracks[0].width, tracks[0].height, FPS)

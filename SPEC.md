@@ -165,8 +165,8 @@ Ways the owner could get money back without doing sessions:
 - **Verifier rotation.** After 48h the owner can install any key as verifier. That's no more power than already holding the verifier key, and the timelock doesn't constrain the owner. Its only job is key-loss recovery. A thief holding the owner key gets the same power, which is one more reason the owner key lives on a hardware wallet.
 
 Verifier requirements that came out of the contract review (phase 2):
-- Read `challenge[d]` from a finalized block before signing. A reorg of the `seedDay` tx changes the stored challenge and invalidates any signature over the old one.
-- One video, one day. In the grace overlap, days `d` and `d+1` can both be seeded, so one recording could contain both days' words. Require each video to contain only its own day's words, and refuse to sign two days with one `videoHash`.
+- Read `challenge[d]` from a finalized block before deriving words or signing (built: `chain.wait_finalized`). A reorg of the `seedDay` tx changes the stored challenge and invalidates any signature over the old one.
+- One video, one day. In the grace overlap, days `d` and `d+1` can both be seeded, so one recording could contain both days' words. The verifier matches a clip to the first of a day's words spoken in it and keeps a ledger of video hashes; a video that counted for one day is refused for any other (built 2026-10-04, `verifier/ptverifier/session.py`).
 
 Ways funds could get stuck:
 - A beneficiary (or owner) that can't call `withdraw()`: an exchange deposit address, or a contract with no generic call function. Payouts are pull-only, so its credits sit forever. Choose a beneficiary address controlled by a person with a normal wallet. `withdrawFor` (§9, proposed) would remove this risk.

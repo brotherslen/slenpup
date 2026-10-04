@@ -1,0 +1,25 @@
+# Copy to config.yaml on the NUC and fill in. config.yaml is gitignored.
+
+rpc_url: https://mainnet.base.org          # or your own Base RPC endpoint
+contract: "0x0000000000000000000000000000000000000000"
+
+# One letter per contract day, the same pattern given to `script/start_time.py bitmap`.
+# A = PT-A, B = PT-B, W = Walk-A, R = rest. '-' is ignored (use it to group weeks).
+# The verifier refuses to run if this doesn't match the contract's scheduleBitmap.
+schedule: "AWRAWRR-AWRAWRR"
+
+# Syncthing drops phone clips into <sessions_dir>/inbox.
+sessions_dir: C:/ptv/sessions
+
+ntfy:
+  server: https://ntfy.sh
+  topic: ptv-change-me-to-something-long-and-random
+  token: null                               # only for a protected self-hosted server
+
+# Encrypted keystore for the gas-only relayer wallet (create with `cast wallet new` or eth-account).
+# Password from the PTV_RELAYER_PASSWORD environment variable.
+relayer_keystore: C:/ptv/relayer.json
+
+whisper_model: small.en                     # downloads once on first verify
+max_frame_gap_s: 0.5
+retention_days: null                        # null = keep videos; e.g. 30 to delete after a month

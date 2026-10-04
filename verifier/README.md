@@ -62,6 +62,36 @@ For each exercise and side the report gives:
 
 Each result is a JSON summary (frame timing, pose detection rate, visibility per side, metric percentiles over the held stretch) plus a `.npz` of the raw landmarks, so bands can be recomputed after changing `exercises.yaml` without re-running the model.
 
+## Daily flow (no signing yet)
+
+1. Shortly after the day boundary, `daily seed` (the relayer) seeds the day on chain, waits for the challenge to be final, derives one word per exercise, and pushes them to your phone with ntfy.
+2. Wherever you are (park, track, home), record **one clip per exercise** with the phone on a small tripod. Say the exercise's word, then hold the position for 5 seconds. For per-side exercises (Y/T/W, split squats) hold one side, turn around, hold the other side, all in the same clip.
+3. Syncthing moves the clips to the NUC's inbox whenever the phone has a connection. Filenames don't matter: the verifier matches each clip to its exercise by the word you said.
+4. `daily verify` checks every clip in the inbox against today's words (and yesterday's, during its grace window), moves matched clips into `sessions/days/day-NNN/`, and writes `report.json`. A day passes when every verifiable exercise has a clip that passes.
+
+What a clip has to show: the exercise's word is the first of the day's words you say; frame timestamps run forward with no gap over 0.5 s (no cuts); the position is held in its calibrated band for 5 s after the word, on each side for per-side exercises; and the video file hasn't counted for an earlier day.
+
+Claim signing and submission aren't built yet. They come after the contract's fork test passes.
+
+### Phone setup (Android)
+
+- **ntfy** (from Google Play or F-Droid): subscribe to the topic in `config.yaml`. Use a long random topic name.
+- **Open Camera** (free): set its save folder to something like `DCIM/PT` so only exercise clips get synced. The stock camera works too, but then every video you take goes to the NUC.
+- **Syncthing-Fork** (F-Droid or Google Play): share that folder as *Send Only* with the NUC. On the NUC, add it as *Receive Only* with `sessions_dir/inbox` as the path. The verifier moves clips out of the inbox once matched; Syncthing shows those as local changes, which is expected (don't press Revert).
+
+### NUC setup
+
+```powershell
+copy verifier\config.example.yaml verifier\config.yaml   # then edit it
+C:\ptv\Scripts\python -m ptverifier.daily words           # sanity check against the contract
+schtasks /Create /TN "PT seed"   /SC DAILY  /ST 04:05 /TR "C:\ptv\Scripts\python -m ptverifier.daily seed"
+schtasks /Create /TN "PT verify" /SC MINUTE /MO 15     /TR "C:\ptv\Scripts\python -m ptverifier.daily verify"
+```
+
+Set `PTV_RELAYER_PASSWORD` for the account the tasks run as. The relayer wallet only holds gas money and can't move the stake, so an environment variable is an acceptable home for its password. The verifier key (when signing is built) will get stronger storage.
+
+`daily` refuses to run if the schedule in `config.yaml` doesn't match the contract's on-chain bitmap.
+
 ## Not built yet
 
-Daily session verification (continuity, challenge words via Whisper, each position held 5 s), signing, and the relayer. Those come after the contract's fork test passes. PT-B exercises are marked TBD in `exercises.yaml` until you fill in their ranges.
+Claim signing and submission. PT-B exercises are marked TBD in `exercises.yaml`; until they're defined, **a PT-B day can't pass**, so either fill them in before deploying or schedule PT-B days as rest days in the contract.
