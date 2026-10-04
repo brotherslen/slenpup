@@ -129,7 +129,7 @@ Claim(uint256 day,bytes32 challenge,bytes32 videoHash,uint32 score)
 
 `challenge` is read from `challenge[d]` in storage, never from calldata. Digest is `_hashTypedDataV4(keccak256(abi.encode(CLAIM_TYPEHASH, d, challenge[d], videoHash, score)))`. Recovery uses `ECDSA.tryRecover` and reverts `InvalidSignature` on any error or mismatch; OZ rejects high-`s` and the zero address.
 
-The contract does not interpret `score`; there is no on-chain minimum. The verifier only signs on a pass, and `score` is carried for the record and emitted. The verifier will set it to the number of exercise positions confirmed that day.
+The contract does not interpret `score`; there is no on-chain minimum. The verifier only signs on a pass, and `score` is carried for the record and emitted. The verifier sets it to the number of exercise positions confirmed that day, and `videoHash` to sha256 over the passing clips' sha256 digests in session order.
 
 Front-running a claim is harmless: whoever submits it, the tranche is credited to `owner`.
 

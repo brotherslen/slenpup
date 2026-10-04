@@ -1,25 +1,25 @@
-"""Daily jobs on the NUC. Signs no claims (that comes after the contract's fork test passes).
+"""Daily jobs on the NUC.
 
     python -m ptverifier.daily seed      # relayer: seed today if needed, then push the words to the phone
     python -m ptverifier.daily words     # print today's words (no transaction)
-    python -m ptverifier.daily verify    # check clips in <sessions_dir>/inbox for today and yesterday's grace
+    python -m ptverifier.daily verify    # check inbox clips for today (and yesterday's grace); claim a passed day
+    python -m ptverifier.daily verify --no-claim   # check only
 
-Run `seed` from Task Scheduler a few minutes after the day boundary, and `verify` every 15 minutes or
-after Syncthing delivers clips. The relayer keystore password comes from PTV_RELAYER_PASSWORD.
+Run `seed` from Task Scheduler a few minutes after the day boundary, and `verify` every 15 minutes.
+Keystore passwords come from the OS credential store (see ptverifier.keys).
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import os
 import shutil
 import sys
 import time
 from datetime import datetime
 from pathlib import Path
 
-from . import chain, notify
+from . import chain, claim, keys, notify
 from .calibrate import DEFAULT_CATALOG, DEFAULT_MODEL, VIDEO_EXT
 from .config import Config, load_config, session_exercises
 from .exercises import Catalog, load_catalog
@@ -67,10 +67,7 @@ def cmd_seed(cfg: Config, catalog: Catalog, c: chain.Commitment, d: int, finaliz
     if info.state == chain.UNSEEDED:
         if cfg.relayer_keystore is None:
             raise SystemExit("relayer_keystore not set in config.yaml")
-        password = os.environ.get("PTV_RELAYER_PASSWORD")
-        if password is None:
-            raise SystemExit("set PTV_RELAYER_PASSWORD")
-        tx = c.seed(d, chain.load_keystore(cfg.relayer_keystore, password))
+        tx = c.seed(d, keys.load("relayer", cfg.relayer_keystore))
         print(f"seeded day {d}: {tx}")
     elif info.state != chain.SEEDED:
         print(f"day {d} already {chain.STATE_NAMES[info.state]}")
@@ -92,7 +89,34 @@ def _load_ledger(cfg: Config) -> dict[str, int]:
     return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
 
 
-def cmd_verify(cfg: Config, catalog: Catalog, c: chain.Commitment, days: list[int], transcriber, extractor) -> list[dict]:
+def _summary(report: dict) -> tuple[str, str]:
+    d, total = report["day"], len(report["exercises"])
+    if report.get("claim_tx"):
+        return f"Day {d} claimed", f"{report['score']}/{total} positions confirmed. Tranche credited to you."
+    lines = [f"{k}: {'ok' if e['passed'] else e['reason']}" for k, e in report["exercises"].items()]
+    if report.get("claim_error"):
+        lines.append(f"claim failed: {report['claim_error']}")
+    lines.append(f"Deadline {report['deadline_local']}.")
+    return f"Day {d}: {report['score']}/{total} so far", "\n".join(lines)
+
+
+def _notify_if_changed(cfg: Config, day_dir: Path, report: dict) -> None:
+    """One push per change in status, and nothing until at least one clip for the day has arrived."""
+    if not any(e["clip"] for e in report["exercises"].values()):
+        return
+    title, body = _summary(report)
+    marker = day_dir / "last_notice.txt"
+    text = f"{title}\n{body}"
+    if marker.exists() and marker.read_text(encoding="utf-8") == text:
+        return
+    notify.send(cfg.ntfy_server, cfg.ntfy_topic, title, body, cfg.ntfy_token)
+    marker.write_text(text, encoding="utf-8")
+
+
+def cmd_verify(
+    cfg: Config, catalog: Catalog, c: chain.Commitment, days: list[int], transcriber, extractor, signer: tuple[bytes, bytes] | None = None
+) -> list[dict]:
+    """signer = (verifier key, relayer key) to claim passed days; None to check only."""
     inbox = cfg.sessions_dir / "inbox"
     inbox.mkdir(parents=True, exist_ok=True)
     reports = []
@@ -115,7 +139,13 @@ def cmd_verify(cfg: Config, catalog: Catalog, c: chain.Commitment, days: list[in
                 ledger[clip["sha256"]] = d
             if clip and (inbox / clip["file"]).exists():
                 shutil.move(str(inbox / clip["file"]), day_dir / clip["file"])
+        if report["passed"] and signer:
+            try:
+                report["claim_tx"] = claim.submit(c, report, *signer)
+            except Exception as exc:  # report it and keep the clips; the next run retries
+                report["claim_error"] = str(exc)
         (day_dir / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+        _notify_if_changed(cfg, day_dir, report)
         reports.append(report)
     _ledger_path(cfg).write_text(json.dumps(ledger, indent=2), encoding="utf-8")
     return reports
@@ -144,7 +174,8 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("seed")
     s.add_argument("--latest", action="store_true", help="use the latest block instead of waiting for finality (testing only)")
     sub.add_parser("words")
-    sub.add_parser("verify")
+    v = sub.add_parser("verify")
+    v.add_argument("--no-claim", action="store_true", help="check clips but don't sign or submit")
     sub.add_parser("cleanup")
     a = p.parse_args(argv)
 
@@ -178,8 +209,15 @@ def main(argv: list[str] | None = None) -> int:
 
         transcriber = WhisperTranscriber(cfg.whisper_model)
         days = [a.day] if a.day is not None else [d for d in (today - 1, today) if d >= 0]
-        for r in cmd_verify(cfg, catalog, c, days, transcriber, lambda v: extract(v, a.model)):
-            status = "PASS" if r["passed"] else "not yet"
+        signer = None
+        if not a.no_claim:
+            if not (cfg.verifier_keystore and cfg.relayer_keystore):
+                raise SystemExit("verifier_keystore and relayer_keystore must be set to claim (or pass --no-claim)")
+            signer = (keys.load("verifier", cfg.verifier_keystore), keys.load("relayer", cfg.relayer_keystore))
+        for r in cmd_verify(cfg, catalog, c, days, transcriber, lambda v: extract(v, a.model), signer):
+            status = "CLAIMED" if r.get("claim_tx") else "PASS" if r["passed"] else "not yet"
+            if r.get("claim_error"):
+                print(f"  claim error: {r['claim_error']}")
             print(f"day {r['day']} {r['session']}: {status} ({r['score']}/{len(r['exercises'])}) deadline {r['deadline_local']}")
             for k, e in r["exercises"].items():
                 print(f"  {k:24s} {e['word']:12s} {'ok' if e['passed'] else e['reason']}")

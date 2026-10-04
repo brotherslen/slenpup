@@ -28,6 +28,7 @@ class Config:
     ntfy_topic: str
     ntfy_token: str | None
     relayer_keystore: Path | None
+    verifier_keystore: Path | None
     whisper_model: str
     max_frame_gap_s: float
     retention_days: int | None
@@ -57,6 +58,7 @@ def load_config(path: str | Path) -> Config:
     if not ntfy.get("topic"):
         raise ConfigError("ntfy.topic is required (pick a long random name; anyone who knows it can read the words)")
     keystore = raw.get("relayer_keystore")
+    vkeystore = raw.get("verifier_keystore")
     return Config(
         rpc_url=raw["rpc_url"],
         contract=raw["contract"],
@@ -66,6 +68,7 @@ def load_config(path: str | Path) -> Config:
         ntfy_topic=ntfy["topic"],
         ntfy_token=ntfy.get("token"),
         relayer_keystore=Path(keystore) if keystore else None,
+        verifier_keystore=Path(vkeystore) if vkeystore else None,
         whisper_model=raw.get("whisper_model", "small.en"),
         max_frame_gap_s=float(raw.get("max_frame_gap_s", 0.5)),
         retention_days=raw.get("retention_days"),

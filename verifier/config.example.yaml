@@ -16,9 +16,11 @@ ntfy:
   topic: ptv-change-me-to-something-long-and-random
   token: null                               # only for a protected self-hosted server
 
-# Encrypted keystore for the gas-only relayer wallet (create with `cast wallet new` or eth-account).
-# Password from the PTV_RELAYER_PASSWORD environment variable.
+# Encrypted keystores, created with `python -m ptverifier.keys new <role> <path>`. Their passwords live
+# in Windows Credential Manager (DPAPI). The relayer wallet holds only gas ETH; the verifier key signs claims
+# and its address is the contract's `verifier`.
 relayer_keystore: C:/ptv/relayer.json
+verifier_keystore: C:/ptv/verifier.json
 
 whisper_model: small.en                     # downloads once on first verify
 max_frame_gap_s: 0.5

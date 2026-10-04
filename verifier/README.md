@@ -62,16 +62,17 @@ For each exercise and side the report gives:
 
 Each result is a JSON summary (frame timing, pose detection rate, visibility per side, metric percentiles over the held stretch) plus a `.npz` of the raw landmarks, so bands can be recomputed after changing `exercises.yaml` without re-running the model.
 
-## Daily flow (no signing yet)
+## Daily flow
 
 1. Shortly after the day boundary, `daily seed` (the relayer) seeds the day on chain, waits for the challenge to be final, derives one word per exercise, and pushes them to your phone with ntfy.
 2. Wherever you are (park, track, home), record **one clip per exercise** with the phone on a small tripod. Say the exercise's word, then hold the position for 5 seconds. For per-side exercises (Y/T/W, split squats) hold one side, turn around, hold the other side, all in the same clip.
 3. Syncthing moves the clips to the NUC's inbox whenever the phone has a connection. Filenames don't matter: the verifier matches each clip to its exercise by the word you said.
 4. `daily verify` checks every clip in the inbox against today's words (and yesterday's, during its grace window), moves matched clips into `sessions/days/day-NNN/`, and writes `report.json`. A day passes when every verifiable exercise has a clip that passes.
+5. On a pass it signs the claim with the verifier key (after checking its EIP-712 digest equals the contract's own `claimDigest`), submits it from the relayer wallet, and pushes "Day N claimed" to your phone. If clips have arrived but something fails, the push lists the reason per exercise; it only pushes when that status changes.
 
 What a clip has to show: the exercise's word is the first of the day's words you say; frame timestamps run forward with no gap over 0.5 s (no cuts); the position is held in its calibrated band for 5 s after the word, on each side for per-side exercises; and the video file hasn't counted for an earlier day.
 
-Claim signing and submission aren't built yet. They come after the contract's fork test passes.
+The claim's `videoHash` is sha256 over the passing clips' sha256 digests in session order, so the chain commits to exactly which files counted without revealing anything about them.
 
 ### Phone setup (Android)
 
@@ -88,10 +89,19 @@ schtasks /Create /TN "PT seed"   /SC DAILY  /ST 04:05 /TR "C:\ptv\Scripts\python
 schtasks /Create /TN "PT verify" /SC MINUTE /MO 15     /TR "C:\ptv\Scripts\python -m ptverifier.daily verify"
 ```
 
-Set `PTV_RELAYER_PASSWORD` for the account the tasks run as. The relayer wallet only holds gas money and can't move the stake, so an environment variable is an acceptable home for its password. The verifier key (when signing is built) will get stronger storage.
+Create both keys once, as the Windows account the scheduled tasks run under:
+
+```powershell
+C:\ptv\Scripts\python -m ptverifier.keys new verifier C:\ptv\verifier.json   # its address goes in VERIFIER at deploy
+C:\ptv\Scripts\python -m ptverifier.keys new relayer  C:\ptv\relayer.json    # send it a little Base ETH for gas
+```
+
+Each keystore is encrypted; its password goes into Windows Credential Manager (DPAPI, tied to that Windows login), so nothing sits in plaintext. Back up both keystore files and their passwords somewhere offline. Losing the verifier key means a 48-hour rotation (DEPLOY_CHECKLIST); losing the relayer key means making a new one and funding it.
 
 `daily` refuses to run if the schedule in `config.yaml` doesn't match the contract's on-chain bitmap.
 
-## Not built yet
+## Still to do
 
-Claim signing and submission. PT-B exercises are marked TBD in `exercises.yaml`; until they're defined, **a PT-B day can't pass**, so either fill them in before deploying or schedule PT-B days as rest days in the contract.
+- PT-B exercises are marked TBD in `exercises.yaml`. Until they're defined, **a PT-B day can't pass**.
+- The Whisper path hasn't run against a real recording yet (model downloads were blocked in the build sandbox). The first real clips are its test.
+- Real-money deployment still waits for the contract's fork test against Base USDC.

@@ -248,6 +248,7 @@ def test_seed_notify_verify_on_anvil(tmp_path, calibrated, monkeypatch):
         keystore = tmp_path / "relayer.json"
         keystore.write_text(json.dumps(Account.encrypt(bytes.fromhex(relayer[2:]), "pw")))
         monkeypatch.setenv("PTV_RELAYER_PASSWORD", "pw")
+        _Ntfy.received.clear()
         cfg = load_config(_config(tmp_path, rpc_url=rpc, contract=contract, schedule="AWR",
                                   ntfy={"server": f"http://127.0.0.1:{server.server_port}", "topic": "ptv-test"},
                                   relayer_keystore=str(keystore)))
@@ -275,6 +276,57 @@ def test_seed_notify_verify_on_anvil(tmp_path, calibrated, monkeypatch):
         assert (inbox / "VID_999.mp4").exists()  # unmatched clip stays in the inbox
         ledger = json.loads((cfg.sessions_dir / "used_videos.json").read_text())
         assert sorted(ledger.values()) == [0, 0, 0]
+        assert _Ntfy.received[-1]["title"] == "Day 0: 3/3 so far"
+
+        # Claim with the wrong verifier key: the contract refuses, the clips stay, the phone hears why.
+        to_key = lambda h: bytes.fromhex(h[2:])  # noqa: E731
+        bad = daily.cmd_verify(cfg, calibrated, c, [0], tr, ext, (to_key(benef), to_key(relayer)))[0]
+        assert "claim_error" in bad and c.day(0).state == chain.SEEDED
+        assert "claim failed" in _Ntfy.received[-1]["body"]
+
+        # The real verifier key: claimed, tranche credited to the owner.
+        good = daily.cmd_verify(cfg, calibrated, c, [0], tr, ext, (to_key(verifier), to_key(relayer)))[0]
+        assert good.get("claim_tx"), good
+        assert c.day(0).state == chain.CLAIMED
+        credit = subprocess.run(["cast", "call", "--rpc-url", rpc, contract, "credit(address)(uint256)", addr(owner)], capture_output=True, text=True).stdout.split()[0]
+        assert credit == "1000000"
+        assert _Ntfy.received[-1]["title"] == "Day 0 claimed"
+        n = len(_Ntfy.received)
+        assert daily.cmd_verify(cfg, calibrated, c, [0], tr, ext, (to_key(verifier), to_key(relayer))) == []  # claimed days are skipped
+        assert len(_Ntfy.received) == n
     finally:
         server.shutdown()
         anvil.terminate()
+
+
+# ------------------------------------------------------------------------------------------ keys
+
+
+def test_keystore_roundtrip_and_missing_password(tmp_path, monkeypatch):
+    from eth_account import Account
+
+    from ptverifier import keys
+
+    acct = Account.create()
+    ks = tmp_path / "v.json"
+    ks.write_text(json.dumps(Account.encrypt(acct.key, "secret")))
+    monkeypatch.setenv("PTV_VERIFIER_PASSWORD", "secret")
+    assert keys.load("verifier", ks) == bytes(acct.key)
+    monkeypatch.delenv("PTV_VERIFIER_PASSWORD")
+    import keyring
+
+    monkeypatch.setattr(keyring, "get_password", lambda service, role: None)
+    with pytest.raises(SystemExit, match="set-password verifier"):
+        keys.load("verifier", ks)
+
+
+def test_video_hash_commits_to_passing_clips_in_order():
+    import hashlib
+
+    from ptverifier.claim import video_hash
+
+    report = {"exercises": {
+        "a": {"passed": True, "clip": {"sha256": "11" * 32}},
+        "b": {"passed": True, "clip": {"sha256": "22" * 32}},
+    }}
+    assert video_hash(report) == hashlib.sha256(bytes.fromhex("11" * 32 + "22" * 32)).digest()

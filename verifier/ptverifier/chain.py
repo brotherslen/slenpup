@@ -19,6 +19,10 @@ ABI = [
     {"type": "function", "name": "dayStart", "stateMutability": "view", "inputs": [{"type": "uint256"}], "outputs": [{"type": "uint256"}]},
     {"type": "function", "name": "claimDeadline", "stateMutability": "view", "inputs": [{"type": "uint256"}], "outputs": [{"type": "uint256"}]},
     {"type": "function", "name": "seedDay", "stateMutability": "nonpayable", "inputs": [{"type": "uint256"}], "outputs": []},
+    {"type": "function", "name": "claimDigest", "stateMutability": "view",
+     "inputs": [{"type": "uint256"}, {"type": "bytes32"}, {"type": "uint32"}], "outputs": [{"type": "bytes32"}]},
+    {"type": "function", "name": "claim", "stateMutability": "nonpayable",
+     "inputs": [{"type": "uint256"}, {"type": "bytes32"}, {"type": "uint32"}, {"type": "bytes"}], "outputs": []},
 ]
 
 UNSEEDED, SEEDED, CLAIMED, FORFEITED = range(4)
@@ -63,28 +67,38 @@ class Commitment:
             claim_deadline=int(f.claimDeadline(d).call()),
         )
 
-    def seed(self, d: int, private_key: bytes, timeout_s: int = 120) -> str:
+    def send(self, fn, private_key: bytes, timeout_s: int = 120) -> str:
+        """Signs and sends a contract call from `private_key`; raises if it reverts."""
         acct = Account.from_key(private_key)
-        tx = self.c.functions.seedDay(d).build_transaction(
+        tx = fn.build_transaction(
             {"from": acct.address, "nonce": self.w3.eth.get_transaction_count(acct.address), "chainId": self.w3.eth.chain_id}
         )
         signed = acct.sign_transaction(tx)
         tx_hash = self.w3.eth.send_raw_transaction(signed.raw_transaction)
         receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=timeout_s)
         if receipt["status"] != 1:
-            raise RuntimeError(f"seedDay({d}) reverted: {tx_hash.hex()}")
+            raise RuntimeError(f"transaction reverted: {tx_hash.hex()}")
         return tx_hash.hex()
+
+    def seed(self, d: int, private_key: bytes) -> str:
+        return self.send(self.c.functions.seedDay(d), private_key)
+
+    def claim_digest(self, d: int, video_hash: bytes, score: int) -> bytes:
+        return bytes(self.c.functions.claimDigest(d, video_hash, score).call())
+
+    def finalized_challenge(self, d: int) -> bytes:
+        """challenge[d] as of the latest finalized block (latest block where 'finalized' isn't supported)."""
+        try:
+            return bytes(self.c.functions.challenge(d).call(block_identifier="finalized"))
+        except Exception:
+            return bytes(self.c.functions.challenge(d).call())
 
     def wait_finalized(self, d: int, poll_s: float = 5.0, timeout_s: float = 1800, finalized: bool = True) -> bytes:
         """The day's challenge as of a finalized block, so a reorg can't change it after words go out
         (SPEC §8). On a chain without the 'finalized' tag (Anvil), the latest block is used."""
         deadline = time.monotonic() + timeout_s
         while True:
-            try:
-                tag = "finalized" if finalized else "latest"
-                ch = bytes(self.c.functions.challenge(d).call(block_identifier=tag))
-            except Exception:
-                ch = bytes(self.c.functions.challenge(d).call())
+            ch = self.finalized_challenge(d) if finalized else bytes(self.c.functions.challenge(d).call())
             if ch != bytes(32):
                 return ch
             if time.monotonic() > deadline:
@@ -92,8 +106,3 @@ class Commitment:
             time.sleep(poll_s)
 
 
-def load_keystore(path, password: str) -> bytes:
-    import json
-    from pathlib import Path
-
-    return bytes(Account.decrypt(json.loads(Path(path).read_text(encoding="utf-8")), password))
