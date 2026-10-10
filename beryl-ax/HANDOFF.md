@@ -1,131 +1,136 @@
-# Handoff: Beryl AX to vanilla OpenWrt
+# Handoff: Beryl AX on vanilla OpenWrt
 
-For whoever picks this up next, whether that's a Claude Code session on the tower or
-a person at the keyboard. Read `README.md` in this folder for the full runbook; this
-file covers where things stand and what the next session needs to know.
+What was done to the GL-MT3000 (Beryl AX) travel router, why each choice was made,
+and what's left. `README.md` in this folder is the general runbook. `flash.sh` and
+`setup.sh` are scripted versions of the same work and have never run on hardware.
 
-## Where things stand (2026-09-28)
+## Current state (as of 2026-09-28)
 
-Done, by hand through the GL web UI and LuCI (the scripts were not used):
+| | |
+|---|---|
+| Firmware | OpenWrt 25.12.5 (confirmed in Status > Overview) |
+| Admin | LuCI at `http://192.168.8.1`, user `root`, password set |
+| LAN | `192.168.8.1/24`, DHCP on |
+| WAN | 2.5G port, DHCP client. Plugged into the ASUS while at home |
+| 2.4 GHz | SSID `travel_slen_2`, ch 1, 20 MHz, AX, WPA2/WPA3 mixed, country US, `lan` only |
+| 5 GHz | Set to ch 36, 80 MHz, same security, country US, `lan` only. Not read back after setup |
+| Extra packages | `travelmate`, `luci-app-travelmate`, `luci-proto-wireguard` (confirmed installed) |
+| Backup | Config archive saved off the router |
+| Tailscale | Not installed, by choice |
 
-- Factory reset on GL stock 4.7.4, then flashed the OpenWrt 25.12.5 sysupgrade image
-  (sha256 matched) from GL's Local Upgrade page with Keep Settings off. Flash went
-  cleanly on 4.7.4 without a stock update first.
-- In LuCI: root password set; both radios enabled on `lan` only, country US,
-  WPA2/WPA3 mixed. 2.4 GHz on ch 1 at 20 MHz with SSID `travel_slen_2`; 5 GHz
-  planned for ch 36 at 80 MHz. LAN moved to `192.168.8.1/24`.
-- Beryl 2.5G WAN is on the ASUS. It's reachable at `http://192.168.8.1`.
+## What was done, and why
 
-Confirmed after setup: Status > Overview shows OpenWrt 25.12.5; `luci-app-travelmate`
-and `luci-proto-wireguard` installed; config backup saved off-device.
+1. **Factory reset on GL stock 4.7.4.** The unit was used and its password unknown.
+   The reset got us into the GL panel to run the flash.
 
-Decided against Tailscale on the Beryl. For remote Jellyfin, run the Tailscale client
-on the laptop and the NUC instead. Revisit only for non-Tailscale devices on the road
-or to route all hotel traffic through home.
+2. **Flashed OpenWrt 25.12.5 from GL's Local Upgrade page, Keep Settings off.**
+   - 25.12.5 is the current stable release. 24.10 only gets security fixes, and that
+     was ending around Sept 2026.
+   - The sha256 was checked before upload.
+   - We skipped the offered stock update: 4.7.4 is recent, and the "format error"
+     reports come from older 4.x builds. It flashed cleanly.
+   - Keep Settings was off so nothing from GL's firmware carried over.
 
-Still open: Travelmate uplink setup happens on the road. `flash.sh` and `setup.sh`
-remain untested against hardware.
+3. **Set it up by hand in LuCI instead of with the scripts.** This Claude session runs
+   in a cloud container with no route to the home LAN. The NUC, the first machine
+   tried, runs Windows without bash, which the scripts need.
 
-Lessons: the NUC was used first, but moving its only Ethernet cable behind the Beryl
-cut Remote Desktop, Roon and Jellyfin. Do Beryl LAN-side work from the tower, not
-the NUC.
+4. **Cabled the 2.5G WAN port to the ASUS, with the setup machine on the 1G LAN
+   port.** The Beryl got internet for package installs, and the setup machine reached
+   its admin side.
+   - The NUC came first, but moving its only Ethernet cable behind the Beryl cut
+     Remote Desktop, Roon and Jellyfin. The tower took over.
+   - Lesson: do anything on the Beryl's wired side from the tower, never the NUC.
 
-## What was verified and what wasn't
+5. **Wi-Fi attached to `lan` only.** `wan` was ticked by mistake on the 2.4 GHz
+   interface and was removed. With it ticked, Wi-Fi clients would land on the
+   upstream network (home or hotel) instead of behind the Beryl's firewall.
 
-Checked against OpenWrt source at tag `v25.12.5` on GitHub:
-- 25.12.5 is the current stable release; 25.12 uses `apk`, not `opkg`.
-- Device definition `glinet_gl-mt3000` in `target/linux/mediatek/image/filogic.mk`.
-  The sysupgrade image gets `append-gl-metadata`, which is what lets GL stock
-  firmware accept it.
-- Ports: WAN is `eth0` (2.5G), LAN is `eth1` (1G), per `02_network` and the DTS.
-- Default packages include `kmod-hwmon-pwmfan`, so the fan needs no setup.
+6. **Country code set to US.** On "driver default" the radio falls back to the most
+   conservative rules and loses channels and power, mainly on 5 GHz.
 
-Not verified (openwrt.org and GL.iNet sites were blocked from the cloud session):
-- The image filename pattern and download URL in `flash.sh`. If the name is wrong,
-  the `sha256sums` lookup fails and the script stops before touching the router.
-- The U-Boot recovery LED sequence (from search snippets: blue blinks about 6
-  times, then solid white).
-- Whether GL stock `sysupgrade -T` accepts the image on the unit's current stock
-  version. Old stock builds reportedly reject it; updating stock first fixes that.
-- The OpenWrt wiki page's own install notes for this model. Read it before flashing:
-  <https://openwrt.org/toh/gl.inet/gl-mt3000>
+7. **5 GHz at 80 MHz on channel 36, not 160 MHz.**
+   - In the US, the 160 MHz block overlaps radar channels. The radio would sit
+     silent about 60 s after every boot and move whenever it hears radar.
+   - [openwrt#16537](https://github.com/openwrt/openwrt/issues/16537) is an open bug:
+     5 GHz drops at 160 MHz with more than one network on the radio. That's what
+     Travelmate creates when it joins hotel Wi-Fi.
+   - 80 MHz (about 1201 Mbps on paper) is far above what hotel uplinks deliver.
+   - Channel 36 is legal almost everywhere.
 
-## Cabling for a tower-driven flash
+8. **Travel SSID and key, not the home ones.**
+   - The key sits in plain text on a device that travels. Reusing the home key
+     means a lost Beryl forces a home password change.
+   - Copying the home SSID and key exactly would let devices join automatically on
+     the road. It only works if the Beryl's Wi-Fi is off at home. Otherwise devices
+     can land on the Beryl's separate network and lose sight of Roon, Jellyfin and
+     casting.
 
-The tower needs to be on the Beryl's LAN side, and it needs internet to download the
-image and keep Claude Code talking to the API. Simplest layout:
+9. **LAN moved from 192.168.1.1 to 192.168.8.1/24.** Many hotel and ISP gateways
+   use 192.168.1.x, and a router whose LAN matches its upstream subnet can't route.
+   The address was replaced, not added alongside, and applied with "Apply unchecked"
+   so LuCI didn't roll it back.
 
-    ASUS LAN port ── Beryl 2.5G (WAN)
-    Beryl 1G (LAN) ── tower Ethernet
+10. **Installed Travelmate and WireGuard support.**
+    - Travelmate joins hotel or airport Wi-Fi as the uplink and detects
+      captive-portal sign-in pages.
+    - `luci-proto-wireguard` keeps a plain WireGuard tunnel available if ever wanted.
 
-The tower's internet then runs through the Beryl. It drops for about 3 minutes
-during the flash and about 1 minute during the setup reboot. A Claude Code session
-will show API errors in those windows; wait it out, don't retry commands.
+11. **Saved a config backup off the router.** After a reset or reflash, restoring
+    it brings all of the above back in one step.
 
-Alternative: the tower's motherboard (MSI B660M Mortar WiFi) has Wi-Fi, so it can
-join the Beryl's stock SSID for the flash while Ethernet stays on the ASUS. That
-breaks right after the flash, because fresh OpenWrt boots with Wi-Fi off, so a cable
-is needed for `setup.sh` anyway. Use the cable from the start.
+12. **Decided against Tailscale on the Beryl.**
+    - The use case was Jellyfin on a laptop. That's better served by the Tailscale
+      app on the laptop and the NUC: a laptop CPU encrypts much faster than the
+      Beryl's MT7981, and it works without the Beryl.
+    - Bandwidth limits regardless of method: every stream leaves the house through
+      the home upload. UHD remuxes run 50–80 Mbps, so expect Jellyfin to transcode.
+      Set a bitrate cap and turn on Quick Sync on the NUC. Download big titles
+      before a trip.
+    - Roon on the road should use Roon ARC. Roon's discovery doesn't cross
+      Tailscale.
+    - Revisit Tailscale on the Beryl only to bring devices that can't run Tailscale
+      (Fire TV, Switch) onto the home network, or to route all hotel traffic
+      through home. If that happens, the NUC is the exit node; the tower sleeps.
 
-## Rules for the next Claude session
+## Next: Travelmate on the road (first use)
 
-1. **Don't flash without the user's go-ahead in that session.** Show the board name
-   and the checksum result first. A bad flash on this unit means U-Boot recovery.
-2. **Interactive prompts don't work in Claude Code's Bash tool.** `flash.sh` asks for
-   the GL admin password over SSH, and `setup.sh` prompts for the root password and
-   Wi-Fi key. Have the user run both scripts in their own Git Bash (or Linux) terminal.
-   Claude handles preflight and verification. Don't ask the user to paste passwords
-   into the chat.
-3. **Give Claude non-interactive SSH after setup.** `setup.sh` installs the first
-   `~/.ssh/id_ed25519.pub` / `id_ecdsa.pub` / `id_rsa.pub` it finds. If the tower
-   has no key, create one before `setup.sh` runs (`ssh-keygen -t ed25519`, with the
-   user's OK). After that, Claude can verify with
-   `ssh -o BatchMode=yes root@192.168.8.1 ...`.
-4. **Watch for Windows quirks.** The scripts need bash: use Git Bash, which Claude
-   Code on native Windows uses for its Bash tool when Git for Windows is installed.
-   To renew DHCP from Git Bash, run `ipconfig //release` then `ipconfig //renew`;
-   the doubled slash stops MSYS path mangling. Or run it from PowerShell.
-5. **Don't unplug power** while the router is flashing.
+Bring the hotel's SSID, the password if there is one, and whether a sign-in page
+appears.
 
-## Steps
+The outline below is from memory and hasn't been checked against the 25.12 LuCI
+pages:
+1. Join the Beryl's Wi-Fi and open `http://192.168.8.1`.
+2. Go to Services > Travelmate and enable it.
+3. Scan for the hotel network on the matching radio and add it as an uplink with
+   its password.
+4. If the hotel has a sign-in page, open any `http://` site from a device behind
+   the Beryl to get the portal, then accept.
 
-1. Detect the tower's OS and shell. Confirm `bash`, `ssh`, `curl` and `sha256sum`
-   exist. Check the cabling above with the user.
-2. User: hold reset about 10 s, then run the GL wizard at `http://192.168.8.1` and
-   set an admin password. Update GL stock firmware if the panel offers an update.
-3. Claude (preflight, no password needed): `curl -s http://192.168.8.1 >/dev/null`
-   answers. Optionally download the image and check it by running the first half
-   of `flash.sh` by hand.
-4. User runs `./flash.sh`. After it finishes, wait about 3 minutes, then renew DHCP.
-   The PC should get a 192.168.1.x address.
-5. User runs `./setup.sh`, answering the prompts. Decide the settings first
-   (see below).
-6. After the reboot, renew DHCP again (the PC should get 192.168.8.x). Claude verifies:
-   - `ssh -o BatchMode=yes root@192.168.8.1 'ubus call system board'` shows
-     release 25.12.5 and model GL-MT3000
-   - `wifi status` shows both radios up with the chosen SSID
-   - `apk list --installed | grep -E 'travelmate|wireguard'`
-   - `ping -c3 openwrt.org` from the router (WAN works)
-   - LuCI loads at `http://192.168.8.1`
-7. Commit anything that changed (script fixes, notes) to this branch.
+The hotel uplink takes over the radio's channel. Expect the 5 GHz AP to follow
+whatever channel the hotel uses.
 
-## Decisions for the user before `setup.sh`
+## Recovery
 
-- `COUNTRY` for Wi-Fi regulatory (defaults to `US`)
-- `ZONENAME` and `TZ_POSIX` (defaults to UTC). Example for US Central:
-  `ZONENAME=America/Chicago TZ_POSIX='CST6CDT,M3.2.0,M11.1.0'`
-- SSID and Wi-Fi key (prompted)
-- `LAN_IP` (defaults to `192.168.8.1`, which keeps it off the 192.168.1.x subnets
-  common on hotel and ISP gateways)
-- `EXTRAS=0` to skip installing travelmate and WireGuard
+- **Forgot the password or broke the config:** factory reset with a long press on
+  the reset button (over 5 s, standard OpenWrt behaviour, from memory). The Beryl
+  comes back at `192.168.1.1` with no password and Wi-Fi off, so it needs a cable.
+  Then restore the backup from System > Backup / Flash Firmware.
+- **Won't boot:** U-Boot web recovery. Set the PC to static `192.168.1.2/24`, hold
+  reset while powering on until the LED blinks blue and goes white, then browse to
+  `http://192.168.1.1` and upload the OpenWrt sysupgrade image or GL stock firmware.
+  See README section 5.
+- **Going back to GL stock:** U-Boot recovery with GL firmware from
+  <https://dl.gl-inet.com/router/mt3000>.
 
-## If something goes wrong
+## Notes for a future Claude session
 
-- `flash.sh` says stock rejected the image: update GL stock firmware, then rerun.
-- The router doesn't answer at 192.168.1.1 five minutes after the flash: power-cycle
-  it once, then try U-Boot recovery (README section 5) with the OpenWrt image or GL
-  stock firmware.
-- Setup fails partway: UCI changes aren't saved until the final `uci commit`, but
-  the root password and SSH key take effect immediately. Rerun `setup.sh` against
-  192.168.1.1; it will ask for the new root password unless the key got installed.
-  If it got as far as the reboot, rerun with `ROUTER=192.168.8.1`.
+- A cloud session can't reach the Beryl. Work happens through the user (LuCI by
+  hand), or from a local Claude Code session on the tower via `claude --teleport`.
+- `flash.sh` and `setup.sh` prompt for passwords interactively. The user runs them
+  in their own Git Bash or Linux terminal, never with passwords pasted into chat.
+- What was verified against OpenWrt source at `v25.12.5`: device definition,
+  sysupgrade image format accepted by GL stock, WAN=`eth0` (2.5G) and
+  LAN=`eth1` (1G), fan driver included, `tailscale` 1.98.3 in the 25.12 feed.
+- What was never verified: the openwrt.org wiki page itself and GL's docs (both were
+  blocked from the cloud session), and the U-Boot LED sequence.
